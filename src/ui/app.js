@@ -7,7 +7,7 @@ import { CAPITULOS, BLOQUES_F, CATEGORIAS_F, FILTRO_ESTUDIO, esDelEstudio, nombr
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
   BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
 import { crearRegistro, entradaDeEjecucion, resumenRegistro } from '../motor/registro.js';
-import { h, boton, tabla, etiqueta, aviso, detalle, tablaConBusqueda, confirmar } from './dom.js';
+import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar } from './dom.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
 const inicial = () => ({
@@ -326,22 +326,26 @@ function panelTraza() {
   if (!S.r) return [bloqueo('El recorrido aparece después de proteger los datos.', 'proteccion')];
   const r = S.r;
   const correctas = r.verificaciones.filter(v => v.ok).length;
+  // Antes y después van en columnas separadas, sin flechas.
+  const AD = ['Antes', 'Después'];
+  const par = (antes, despues) => (despues === undefined ? ['—', '—'] : [antes ?? '—', despues].map(x => (typeof x === 'number' ? num(x) : x)));
   const vistas = {
-    recorrido: ['Paso a paso', () => tabla(['#', 'Operación', 'Regla', 'Vuelta', 'Personas', 'Atenciones', 'k', 'Grupos con 1 diagnóstico'],
-      r.recorrido.map((o, i) => [i + 1, o.operacion, o.regla, o.vuelta ?? '—',
-        `${o.personasAntes ?? '—'} → ${o.personasDespues}`, `${o.atencionesAntes} → ${o.atencionesDespues}`,
-        o.kAntes === undefined ? '—' : `${o.kAntes} → ${o.kDespues}`,
-        o.homogeneosAntes === undefined ? '—' : `${o.homogeneosAntes} → ${o.homogeneosDespues}`]))],
+    recorrido: ['Paso a paso', () => tablaAdaptable(['#', 'Operación', 'Regla', 'Vuelta',
+      { texto: 'Personas', sub: AD }, { texto: 'Atenciones', sub: AD }, { texto: 'k', sub: AD }, { texto: 'Grupos con 1 diagnóstico', sub: AD }],
+    r.recorrido.map((o, i) => [i + 1, o.operacion, o.regla, o.vuelta ?? '—',
+      ...par(o.personasAntes, o.personasDespues), ...par(o.atencionesAntes, o.atencionesDespues),
+      ...par(o.kAntes, o.kDespues), ...par(o.homogeneosAntes, o.homogeneosDespues)]))],
     columnas: ['Por columna', () => tablaConBusqueda('traza',
-      ['Columna', 'Qué se hizo', 'Cómo', 'Sale como', 'Celdas cambiadas', 'Valores distintos', 'Por qué', 'Estado'],
+      ['Columna', 'Qué se hizo', 'Cómo', 'Sale como', 'Celdas cambiadas', { texto: 'Valores distintos', sub: AD }, 'Por qué', 'Estado'],
       r.traza.map(t => [t.columna_entrada, t.tecnica, t.parametro || '—', t.columna_salida,
-        num(t.valores_modificados), `${num(t.distintos_antes)} → ${num(t.distintos_despues)}`, t.justificacion, t.estado]))],
-    verificaciones: ['Verificaciones', () => tabla(['ID', 'Comprobación', 'Resultado'],
+        num(t.valores_modificados), num(t.distintos_antes), num(t.distintos_despues), t.justificacion, t.estado]),
+      undefined, tablaAdaptable)],
+    verificaciones: ['Verificaciones', () => tablaAdaptable(['ID', 'Comprobación', 'Resultado'],
       r.verificaciones.map(v => [v.id, v.texto, etiqueta(v.ok ? 'ok' : 'mal', v.ok ? 'Correcta' : 'Falló')]))],
   };
   return [
     aviso(correctas === r.verificaciones.length ? 'ok' : 'mal', `${correctas} de ${r.verificaciones.length} verificaciones correctas.`),
-    detalle('traza', 'Ver el detalle de lo que se hizo',
+    detalle('traza', 'Detalle de lo que se hizo',
       h('div', { className: 'segmentos', role: 'group', 'aria-label': 'Vista de trazabilidad' },
         Object.entries(vistas).map(([id, [texto]]) => boton(texto, () => { pestana = id; pintar(); },
           { id: 'ver-' + id, 'aria-pressed': String(pestana === id) }))),
@@ -467,7 +471,7 @@ const SECCIONES = [
     () => (S.r ? ['ok', 'Listo'] : !S.cohorte ? ['neutro', 'Bloqueado'] : S.desactualizado ? ['aviso', 'Volver a medir'] : ['aviso', 'Por hacer'])],
   ['resultados', '3. Resultados', '¿Se puede reconocer a alguien? ¿Los datos siguen siendo útiles?', panelResultados,
     () => (S.r ? (S.r.apto ? ['ok', 'Apto'] : ['mal', 'No apto']) : ['neutro', 'Pendiente'])],
-  ['trazabilidad', '4. Trazabilidad', 'Compruebe qué se hizo y en qué orden.', panelTraza,
+  ['trazabilidad', '4. Trazabilidad', 'Qué se hizo, en qué orden y con qué resultado.', panelTraza,
     () => (S.r ? ['ok', 'Disponible'] : ['neutro', 'Pendiente'])],
   ['entrega', '5. Entrega', 'Revise los textos y descargue los archivos.', panelEntrega,
     () => (!S.r ? ['neutro', 'Bloqueado'] : entregaLista() ? ['ok', 'Lista'] : ['aviso', 'Faltan datos'])],

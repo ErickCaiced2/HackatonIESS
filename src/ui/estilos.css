@@ -61,7 +61,7 @@ th { background: #e9eef8; position: sticky; top: 0; }
 .aviso, .veredicto { padding: 10px 14px; margin: 10px 0; border-left: 6px solid; border-radius: 6px; }
 .aviso.ok, .veredicto.ok { background: var(--ok-f); border-color: var(--ok); }
 .aviso.mal, .veredicto.mal { background: var(--mal-f); border-color: var(--mal); }
-.aviso.aviso { background: var(--av-f); border-color: var(--av); }
+.aviso:not(.ok):not(.mal) { background: var(--av-f); border-color: var(--av); }
 .aviso button { margin-left: 8px; }
 .veredicto { display: flex; flex-direction: column; }
 .veredicto strong { font-size: 22px; }
@@ -97,3 +97,21 @@ dd { margin: 0 0 8px; }
 .vistas button[aria-current="page"] { background: #fff; color: var(--azul); font-weight: 700; box-shadow: inset 0 -4px 0 #e08a00; }
 .tablero { max-width: 1360px; margin: 0 auto; padding: 16px; }
 .cabeza-tablero { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }
+
+/* Tablas de trazabilidad: se ajustan al ancho disponible del panel */
+.panel { container-type: inline-size; }
+.segmentos { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.adaptable { overflow-x: auto; max-width: 100%; }
+.adaptable table { width: 100%; table-layout: auto; }
+.adaptable th.grupo { text-align: center; border-bottom: 1px solid var(--borde); }
+.adaptable th.sub { font-weight: 600; font-size: 13.5px; top: 0; }
+.adaptable thead tr + tr th { top: auto; }
+.adaptable td { font-variant-numeric: tabular-nums; overflow-wrap: break-word; }
+@container (max-width: 820px) {
+  .adaptable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .adaptable table, .adaptable tbody, .adaptable tr { display: block; width: 100%; }
+  .adaptable tr { border: 1px solid var(--borde); border-radius: 8px; margin-bottom: 10px; padding: 4px 12px; background: #fff; }
+  .adaptable td { display: grid; grid-template-columns: minmax(110px, 42%) 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--borde); }
+  .adaptable td:last-child { border-bottom: 0; }
+  .adaptable td::before { content: attr(data-etiqueta); font-weight: 600; color: var(--suave); }
+}
