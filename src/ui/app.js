@@ -8,7 +8,7 @@ import { CAPITULOS, bloquesDe, categoriasDe, FILTRO_ESTUDIO, esDelEstudio, nombr
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
   BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
 import { crearRegistro, entradaDeEjecucion, resumenRegistro } from '../motor/registro.js';
-import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar } from './dom.js';
+import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar, cerrarNotificaciones } from './dom.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
 const inicial = () => ({
@@ -28,7 +28,6 @@ let vista = 'tablero';
 const registro = crearRegistro();
 
 const $ = id => document.getElementById(id);
-const anunciar = texto => { $('anuncio').textContent = texto; };
 
 // ---------- Errores y acciones largas ----------
 // Cada error explica cómo recuperarse.
@@ -41,21 +40,21 @@ const SOLUCIONES = [
   [/digest|subtle/, 'Abra la página con la dirección 127.0.0.1 de Live Server, no con una IP de la red.'],
 ];
 
+// Los errores se muestran como aviso rojo arriba a la derecha, con la causa y qué hacer.
 function mostrarError(mensaje) {
-  const caja = $('error');
-  caja.hidden = !mensaje;
-  if (!mensaje) { caja.replaceChildren(); return; }
+  cerrarNotificaciones('mal');
+  if (!mensaje) return;
   const solucion = SOLUCIONES.find(([patron]) => patron.test(mensaje))?.[1] ?? 'Revise el último paso e inténtelo de nuevo.';
-  caja.replaceChildren(h('p', {}, h('strong', {}, '✗ No se pudo completar. '), mensaje),
-    h('p', {}, h('strong', {}, 'Qué hacer: '), solucion), boton('Cerrar aviso', () => mostrarError('')));
-  caja.scrollIntoView?.({ block: 'nearest' });
+  notificar('mal', h('p', {}, h('strong', {}, 'No se pudo completar. '), mensaje), h('p', {}, h('strong', {}, 'Qué hacer: '), solucion));
 }
+
+const MENSAJE_DESACTUALIZADO = 'Cambió la configuración. Vuelva a proteger los datos para ver resultados y descargar.';
 
 function trabajar(mensaje, fn, destino) {
   if (ocupado) return;
   ocupado = true;
   mostrarError('');
-  $('ocupado').textContent = '⏳ ' + mensaje;
+  $('ocupado').textContent = mensaje + ' ⏳';
   $('ocupado').hidden = false;
   setTimeout(async () => { // deja pintar el indicador antes del cálculo
     let bien = false;
@@ -94,7 +93,7 @@ async function cargar(entrada) {
     const datos = leer(texto); // si falla, se conserva lo anterior
     S = { ...inicial(), datos, archivo: archivo.name };
     Object.assign(pta, ptaInicial());
-    anunciar(`Archivo válido: ${num(datos.filas.length)} filas. Siguiente: extraer la cohorte.`);
+    notificar('ok', `Archivo válido: ${num(datos.filas.length)} atenciones de ${num(datos.personas)} personas.`);
   });
 }
 
@@ -104,6 +103,7 @@ async function empezarDeNuevo() {
   Object.assign(pta, ptaInicial());
   mostrarError('');
   pintar();
+  notificar('ok', 'Se borró de la memoria el archivo, los resultados y los textos escritos.');
   irA('datos');
 }
 
@@ -112,6 +112,7 @@ async function cambiarFiltro(nuevo) {
   Object.assign(S, sinResultados(), { filtro: nuevo, cohorte: null, antes: null, deshacer: null, desactualizado: false });
   limpiarRevision();
   pintar();
+  notificar('ok', `Filtro actualizado: ${num(S.contar ? S.contar(nuevo) : 0)} personas con este filtro.`);
 }
 
 function filtroCIE10() {
@@ -173,7 +174,7 @@ function panelDatos() {
       if (!cohorte.atenciones) throw new Error('La cohorte está vacía.');
       S.cohorte = cohorte;
       S.antes = medir(cohorte.filas, 'cedula');
-      anunciar(`Cohorte lista: ${num(cohorte.personas)} personas. Siguiente: proteger los datos.`);
+      notificar('ok', `Cohorte lista: ${num(cohorte.personas)} personas y ${num(cohorte.atenciones)} atenciones.`);
     }), { className: 'principal' }),
     c && !c.esEstudio && aviso('aviso', 'Modo exploración: no es la cohorte del estudio. Puede medirla, pero no entregarla.'),
     c && h('div', { className: 'indicadores' },
@@ -194,7 +195,7 @@ function panelDatos() {
 function indicador(nombre, valor, explicacion, cumple) {
   return h('div', { className: 'indicador' + (cumple === undefined ? '' : cumple ? ' ok' : ' mal') },
     h('span', {}, nombre), h('b', {}, valor),
-    h('small', {}, cumple === undefined ? explicacion : `${cumple ? '✓ Cumple' : '✗ No cumple'}. ${explicacion}`));
+    h('small', {}, cumple === undefined ? explicacion : `${cumple ? 'Cumple ✓' : 'No cumple ✗'}. ${explicacion}`));
 }
 
 // ---------- 2. Protección ----------
@@ -213,6 +214,8 @@ function cambiar(clave, valor) {
   delete S.historial.propia;
   limpiarRevision();
   pintar();
+  if (S.desactualizado) notificar('aviso', MENSAJE_DESACTUALIZADO);
+  else notificar('ok', 'Configuración actualizada.');
 }
 
 function elegirModo(tipo) {
@@ -223,6 +226,7 @@ function elegirModo(tipo) {
   S.deshacer = null;
   limpiarRevision();
   pintar();
+  notificar('ok', `Configuración ${tipo === 'referencia' ? 'Referencia' : 'Propia'} seleccionada.`);
 }
 
 function anonimizar() {
@@ -234,7 +238,8 @@ function anonimizar() {
     S.desactualizado = false;
     S.deshacer = null;
     limpiarRevision();
-    anunciar(S.r.apto ? 'Listo: la ejecución es APTA. Revise los resultados.' : 'La ejecución NO es apta. Revise qué falló.');
+    if (S.r.apto) notificar('ok', 'La ejecución es APTA. Los resultados están listos.');
+    else notificar('mal', 'La ejecución NO es apta: ' + S.r.verificaciones.filter(v => !v.ok).map(v => v.id).join(', ') + '.');
   }, 'resultados');
 }
 
@@ -270,7 +275,6 @@ function panelProteccion() {
     h('fieldset', { className: 'opciones' }, h('legend', {}, 'Elija una forma de proteger'),
       opcion('referencia', 'Referencia', 'Las reglas oficiales. Sirve para la verificación del jurado.'),
       opcion('propia', 'Propia (para entregar)', 'Añade protección del diagnóstico y oculta estancias muy largas.')),
-    S.desactualizado && aviso('aviso', 'Cambió la configuración. Vuelva a proteger los datos para ver resultados y descargar.'),
     detalle('parametros', fija ? 'Ver los parámetros (fijos en la referencia)' : 'Ajustar parámetros',
       h('div', { className: 'fila' },
         selector('Grupo mínimo (k)', 'k', [5, 6, 8, 10, 15].map(n => [n, `${n} personas`]), 'Cada persona se confunde con otras. Más alto protege más.'),
@@ -284,6 +288,7 @@ function panelProteccion() {
         guardarParaDeshacer();
         S.config = { ...PROPIA }; S.propia = { ...PROPIA }; S.r = null; delete S.historial.propia;
         S.desactualizado = true; limpiarRevision(); pintar();
+        notificar('aviso', MENSAJE_DESACTUALIZADO);
       })),
     detalle('variables', 'Ver qué pasa con cada una de las 28 columnas',
       tablaConBusqueda('variables', ['Columna', 'Qué es', 'Categoría especial', '¿La pide el estudio?', 'Qué se hace', 'Cómo'],
@@ -292,9 +297,10 @@ function panelProteccion() {
     h('div', { className: 'acciones' },
       boton(S.r ? 'Volver a proteger y medir' : 'Proteger los datos y medir', anonimizar,
         { className: 'principal', id: 'anonimizar', disabled: errores.length > 0 }),
-      S.deshacer && boton('↶ Deshacer el último cambio', () => {
+      S.deshacer && boton('Deshacer el último cambio ↶', () => {
         Object.assign(S, S.deshacer, { deshacer: null });
         limpiarRevision(); pintar();
+        notificar('ok', 'Se deshizo el último cambio.');
       })),
   ];
 }
@@ -311,7 +317,7 @@ function panelResultados() {
   return [
     !r.cohorte.esEstudio && aviso('aviso', `Exploración con ${r.cohorte.etiquetaFiltro}: no se puede entregar.`),
     h('div', { className: 'veredicto ' + (r.apto ? 'ok' : 'mal') },
-      h('strong', {}, r.apto ? '✓ APTO para continuar' : '✗ NO APTO'),
+      h('strong', {}, r.apto ? 'APTO para continuar ✓' : 'NO APTO ✗'),
       h('span', {}, r.apto ? `Pasó los controles medidos con la configuración ${r.config.tipo}. No significa riesgo cero.`
         : 'Falló: ' + fallas.map(v => `${v.id} ${v.texto}`).join('; ') + '. Cambie la configuración y vuelva a medir.')),
     h('div', { className: 'indicadores' },
@@ -433,7 +439,7 @@ function panelEntrega() {
       mostrarError('');
       try {
         const nombre = await descargarEntrega(id);
-        estado.replaceChildren(aviso('ok', `Se envió a descargas: ${nombre}. Compruebe que esté en su carpeta.`));
+        notificar('ok', `Se envió a descargas: ${nombre}.`);
       } catch (e) { mostrarError(e.message); }
     }, { id: 'bajar-' + id, className: id === 'zip' ? 'principal' : 'secundario' }));
   const lista = h('ul', { className: 'requisitos' });
@@ -491,7 +497,7 @@ function panelEntrega() {
 }
 
 // ---------- Estructura del panel ----------
-const bloqueo = (mensaje, destino) => h('div', { className: 'vacio' }, h('p', {}, '🔒 ' + mensaje),
+const bloqueo = (mensaje, destino) => h('div', { className: 'vacio' }, h('p', {}, mensaje + ' 🔒'),
   boton('Ir al paso necesario', () => irA(destino)));
 
 const SECCIONES = [
@@ -548,6 +554,7 @@ async function borrarRegistro() {
   if (!await confirmar('Borrar el registro', 'Se borra el historial de ejecuciones y descargas de este navegador. Los archivos ya descargados no cambian.', 'Borrar registro')) return;
   registro.borrar();
   pintar();
+  notificar('ok', 'Se borró el registro de ejecuciones.');
 }
 
 function detalleEjecucion(e) {

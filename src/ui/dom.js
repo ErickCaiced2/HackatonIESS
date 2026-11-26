@@ -33,12 +33,38 @@ export function tablaAdaptable(cabecera, filas) {
     h('tbody', {}, filas.map(f => h('tr', {}, f.map((c, i) => h('td', { 'data-etiqueta': etiquetas[i] }, c)))))));
 }
 
-// El estado siempre lleva icono y texto, no solo color.
-const ICONOS = { ok: '✓', mal: '✗', aviso: '!', neutro: '•' };
+// El estado siempre lleva icono y texto, no solo color. El icono va al final del texto.
+export const ICONOS = { ok: '✓', mal: '✗', aviso: '!', neutro: '•' };
 export const etiqueta = (tipo, texto) =>
-  h('span', { className: 'etiqueta ' + tipo }, `${ICONOS[tipo]} ${texto}`);
+  h('span', { className: 'etiqueta ' + tipo }, `${texto} ${ICONOS[tipo]}`);
 export const aviso = (tipo, ...contenido) =>
-  h('div', { className: 'aviso ' + tipo }, h('strong', { 'aria-hidden': 'true' }, ICONOS[tipo] + ' '), contenido);
+  h('div', { className: 'aviso ' + tipo }, contenido, h('strong', { className: 'icono', 'aria-hidden': 'true' }, ' ' + ICONOS[tipo]));
+
+// Avisos del sistema arriba a la derecha: verde = éxito, naranja = advertencia, rojo = error.
+// Los errores quedan hasta cerrarlos; los demás se van solos (se pausan con el puntero o el foco).
+const DURACION = { ok: 5000, aviso: 8000 };
+const TITULO = { ok: 'Listo', aviso: 'Atención', mal: 'Error' };
+export function notificar(tipo, ...contenido) {
+  const zona = document.getElementById('notificaciones');
+  if (!zona) return null;
+  const clave = contenido.map(c => (c instanceof Node ? c.textContent : String(c))).join(' ');
+  zona.querySelector(`[data-clave="${CSS.escape(clave)}"]`)?.remove(); // sin duplicados
+  let temporizador;
+  const cerrar = () => { clearTimeout(temporizador); nota.remove(); };
+  const programar = () => { if (DURACION[tipo]) temporizador = setTimeout(cerrar, DURACION[tipo]); };
+  const nota = h('div', { className: 'notificacion ' + tipo, role: tipo === 'mal' ? 'alert' : 'status', 'data-clave': clave,
+    onmouseenter: () => clearTimeout(temporizador), onmouseleave: programar,
+    onfocusin: () => clearTimeout(temporizador), onfocusout: programar },
+  h('div', { className: 'cuerpo' }, h('strong', {}, `${TITULO[tipo]} ${ICONOS[tipo]}`), h('div', {}, contenido)),
+  h('button', { type: 'button', className: 'cerrar', 'aria-label': 'Cerrar aviso', onclick: cerrar }, '×'));
+  zona.append(nota);
+  while (zona.children.length > 4) zona.firstElementChild.remove();
+  programar();
+  return nota;
+}
+export function cerrarNotificaciones(tipo) {
+  document.querySelectorAll('#notificaciones .notificacion' + (tipo ? '.' + tipo : '')).forEach(n => n.remove());
+}
 
 // Recuerda qué detalles abrió la persona, aunque la vista se vuelva a pintar.
 const abiertos = new Set();

@@ -11,6 +11,7 @@
 </head>
 <body>
   <a class="saltar" href="#contenido">Saltar al contenido</a>
+  <div id="notificaciones" class="notificaciones"></div>
   <header>
     <div>
       <h1>Tus datos, tus derechos</h1>
@@ -21,7 +22,7 @@
       <button type="button" id="ver-proceso">Proceso de anonimización</button>
     </div>
     <div class="acciones">
-      <button type="button" id="ayuda-abrir">? Ayuda y glosario</button>
+      <button type="button" id="ayuda-abrir">Ayuda y glosario ?</button>
       <button type="button" id="reiniciar">Empezar de nuevo</button>
     </div>
   </header>
@@ -37,8 +38,6 @@
     <div class="principal-columna">
       <div id="siguiente"></div>
       <div id="ocupado" role="status" hidden></div>
-      <div id="error" role="alert" hidden></div>
-      <p id="anuncio" class="solo-lector" aria-live="polite"></p>
       <main id="contenido" tabindex="-1"></main>
     </div>
   </div>
