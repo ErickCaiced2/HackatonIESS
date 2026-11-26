@@ -435,17 +435,34 @@ function panelTraza() {
 }
 
 // ---------- 5. Entrega ----------
+// [texto, cumple, campo que lo corrige: id, sección y desplegable que hay que abrir]
 const requisitos = () => [
-  ['La cohorte es la que pide el estudio', !!S.r?.cohorte.esEstudio],
-  ['La ejecución es APTA', !!S.r?.apto],
-  ['Número de equipo de 2 dígitos', /^\d{2}$/.test(pta.equipo)],
-  ['Supuesto sobre quién podría reidentificar, escrito', pta.atacante.trim() !== ''],
-  ['Canal para ejercer derechos, escrito', pta.canal.trim() !== ''],
-  ['Texto de riesgo residual revisado', pta.okRiesgo],
-  ['Resumen para el titular revisado', pta.okTitular],
-  ['Acuerdo de confidencialidad aceptado', pta.acuerdoEn !== ''],
-  ['Se entrega al destinatario de la petición', mismoDestinatario(pta.entregarA, S.r?.destinatario)],
+  ['La cohorte es la que pide el estudio', !!S.r?.cohorte.esEstudio, ['f-capitulo', 'datos', 'filtro']],
+  ['La ejecución es APTA', !!S.r?.apto, ['p-k', 'proteccion', 'parametros']],
+  ['Número de equipo de 2 dígitos', /^\d{2}$/.test(pta.equipo), ['pta-equipo', 'entrega']],
+  ['Supuesto sobre quién podría reidentificar, escrito', pta.atacante.trim() !== '', ['pta-atacante', 'entrega']],
+  ['Canal para ejercer derechos, escrito', pta.canal.trim() !== '', ['pta-canal', 'entrega']],
+  ['Texto de riesgo residual revisado', pta.okRiesgo, ['okRiesgo', 'entrega']],
+  ['Resumen para el titular revisado', pta.okTitular, ['okTitular', 'entrega']],
+  ['Acuerdo de confidencialidad aceptado', pta.acuerdoEn !== '', ['acuerdo', 'entrega']],
+  ['Se entrega al destinatario de la petición', mismoDestinatario(pta.entregarA, S.r?.destinatario), ['entregar-id', 'entrega']],
 ];
+
+// Lleva al campo que corrige un requisito, le da el foco y lo resalta un momento.
+function irACampo([id, seccion, desplegable]) {
+  verVista('proceso');
+  const d = desplegable && $(desplegable);
+  if (d && !d.open) d.open = true;
+  const campo = $(id);
+  if (!campo || campo.disabled) { irA(seccion); return; }
+  campo.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  campo.focus({ preventScroll: true });
+  const caja = campo.closest('label, .campo, fieldset') ?? campo;
+  caja.classList.remove('resaltado');
+  void caja.offsetWidth; // reinicia la animación si se pulsa dos veces
+  caja.classList.add('resaltado');
+  setTimeout(() => caja.classList.remove('resaltado'), 2500);
+}
 const entregaLista = () => requisitos().every(([, ok]) => ok);
 
 function descargar(nombre, contenido, tipo) {
@@ -495,8 +512,11 @@ function panelEntrega() {
   const actualizar = () => {
     const faltan = requisitos().filter(([, ok]) => !ok).length;
     botones.forEach(b => { b.disabled = faltan > 0; });
-    lista.replaceChildren(...requisitos().map(([texto, ok]) => h('li', {}, etiqueta(ok ? 'ok' : 'mal', ok ? 'Listo' : 'Falta'), ' ', texto)));
-    motivo.textContent = faltan ? `Faltan ${faltan} requisito(s) para habilitar la descarga.` : 'Todo listo. Para obtener el PDF, abra el PTA y use Imprimir.';
+    lista.replaceChildren(...requisitos().map(([texto, ok, destino]) => h('li', {}, ok
+      ? [etiqueta('ok', 'Listo'), ' ', texto]
+      : h('button', { type: 'button', className: 'requisito-pendiente', onclick: () => irACampo(destino), 'aria-label': `${texto}: falta. Ir al campo` },
+        etiqueta('mal', 'Falta'), ' ', h('span', {}, texto), h('span', { className: 'ir', 'aria-hidden': 'true' }, ' Ir al campo →')))));
+    motivo.textContent = faltan ? `Faltan ${faltan} requisito(s) para habilitar la descarga. Pulse uno para ir al campo.` : 'Todo listo. Para obtener el PDF, abra el PTA y use Imprimir.';
     pintarNavegacion();
   };
   const casillas = {};

@@ -262,3 +262,14 @@ dialog.dialogo-ancho h3 { margin: 22px 0 10px; font-size: 15.5px; font-weight: 6
 .error-campo { margin: 0; color: var(--mal); font-size: 13.5px; font-weight: 500; min-height: 0; }
 .error-campo:empty { display: none; }
 input[aria-invalid="true"] { border-color: var(--mal) !important; }
+
+/* Requisitos pendientes: llevan al campo que los corrige */
+.requisito-pendiente { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 0; padding: 4px 8px; margin-left: -8px;
+  border: 1px solid transparent; background: transparent; text-align: left; font-weight: 400; color: var(--texto); }
+.requisito-pendiente:hover:not(:disabled) { background: var(--mal-f); border-color: #ecc9c9; }
+.requisito-pendiente:hover span:not(.etiqueta) { text-decoration: underline; }
+.requisito-pendiente .ir { color: var(--mal); font-size: 13px; font-weight: 600; }
+/* Campo al que se llega desde un requisito */
+.resaltado { border-radius: var(--radio-chico); animation: resaltar 2.4s ease-out; }
+@keyframes resaltar { 0%, 60% { box-shadow: 0 0 0 4px var(--av-f), 0 0 0 6px var(--av); background-color: var(--av-f); } 100% { box-shadow: 0 0 0 0 transparent; background-color: transparent; } }
+@media (prefers-reduced-motion: reduce) { .resaltado { animation: none; box-shadow: 0 0 0 3px var(--av); } }
