@@ -17,23 +17,27 @@
       <h1>Tus datos, tus derechos</h1>
       <p>Proteja datos de salud antes de compartirlos con un investigador.</p>
     </div>
-    <div class="vistas" role="group" aria-label="Vistas">
-      <button type="button" id="ver-tablero" aria-current="page">Tablero</button>
-      <button type="button" id="ver-proceso">Proceso de anonimización</button>
-    </div>
+    <div id="vistas" class="vistas" role="group" aria-label="Secciones" hidden></div>
     <div class="acciones">
+      <div id="usuario" class="usuario" hidden></div>
       <button type="button" id="ayuda-abrir">Ayuda y glosario ?</button>
-      <button type="button" id="reiniciar">Empezar de nuevo</button>
+      <button type="button" id="reiniciar" hidden>Empezar de nuevo</button>
+      <button type="button" id="cerrar-sesion" hidden>Cerrar sesión</button>
     </div>
   </header>
 
-  <div id="tablero" class="tablero"></div>
+  <div id="login" class="tablero login-contenedor" hidden></div>
+  <div id="tablero" class="tablero" hidden></div>
+  <div id="ti-peticiones" class="tablero" hidden></div>
+  <div id="ti-logs" class="tablero" hidden></div>
+  <div id="ce-peticiones" class="tablero" hidden></div>
+  <div id="doc-peticiones" class="tablero" hidden></div>
 
   <div class="disposicion" id="proceso" hidden>
     <nav aria-label="Secciones del panel">
       <div id="progreso"></div>
       <ul id="menu"></ul>
-      <p class="nota">Atajos: Alt + 0 tablero, Alt + 1 a 6 pasos</p>
+      <p class="nota">Atajos: Alt + 0 tablero, Alt + 1 a 5 pasos</p>
     </nav>
     <div class="principal-columna">
       <div id="siguiente"></div>
@@ -47,15 +51,12 @@
 
   <dialog id="ayuda" aria-labelledby="ayuda-titulo">
     <h2 id="ayuda-titulo">Ayuda</h2>
-    <h3>Cómo usar el panel</h3>
+    <h3>Cómo funciona</h3>
     <ol>
-      <li>En el Tablero vea el registro de ejecuciones y pulse «Nueva anonimización».</li>
-      <li>Cargue el CSV y extraiga las personas del estudio.</li>
-      <li>Elija cómo proteger: Referencia (verificación) o Propia (entrega).</li>
-      <li>Revise si es APTO y cuánta utilidad se conservó.</li>
-      <li>Compruebe en Trazabilidad qué se hizo.</li>
-      <li>Registre a qué personal va dirigida la petición (licencia del MSP o IESS).</li>
-      <li>Acepte el acuerdo de confidencialidad y descargue.</li>
+      <li><strong>Comité de ética:</strong> crea la petición con el PDF aprobado, la persona autorizada (licencia del MSP o IESS) y los datos que necesita (periodo y diagnóstico CIE-10), y la envía a TI.</li>
+      <li><strong>TI:</strong> revisa la petición y el PDF. Puede devolverla con un motivo o procesarla: carga la base, configura la protección, revisa resultados y trazabilidad, y la publica.</li>
+      <li><strong>Doctor o personal autorizado:</strong> entra con su licencia y el teclado en pantalla, firma el acuerdo de confidencialidad y descarga los archivos.</li>
+      <li><strong>TI</strong> ve en Logs y en el Tablero todo lo que pasó: accesos, peticiones, firmas, descargas y errores.</li>
     </ol>
     <h3>Glosario</h3>
     <dl>
@@ -67,7 +68,8 @@
       <dt>Suprimir</dt><dd>Quitar una columna, o a las personas que quedan en grupos demasiado pequeños.</dd>
       <dt>Utilidad</dt><dd>Cuánto siguen sirviendo los datos para el estudio.</dd>
       <dt>Anonimizar</dt><dd>Procurar que nadie pueda identificar a la persona sin un esfuerzo desproporcionado. Siempre queda un riesgo.</dd>
-      <dt>Tablero</dt><dd>Página principal con el registro de cada ejecución: petición, riesgo k, anonimizaciones, clasificación, elaboración y descarga del dataset.</dd>
+      <dt>Petición</dt><dd>Pedido del comité de ética: a quién se entrega y qué datos (periodo y diagnóstico). Tiene un estado: enviada, devuelta, en proceso, lista, firmada, descargada.</dd>
+      <dt>Logs</dt><dd>Bitácora de TI: inicios de sesión, peticiones, descargas y errores. No se puede borrar.</dd>
       <dt>PTA</dt><dd>Protocolo Técnico de Anonimización: el informe de lo que se hizo y del riesgo.</dd>
     </dl>
     <button type="button" id="ayuda-cerrar" class="principal">Cerrar</button>
