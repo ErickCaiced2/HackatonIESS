@@ -18,9 +18,11 @@ export function configuracionJSON(r) {
   }, null, 2);
 }
 
-export async function trazabilidadJSON(r, huellaCSV, huellaConfig, acuerdoEn = null) {
+export async function trazabilidadJSON(r, huellaCSV, huellaConfig, acuerdoEn = null, entregadoA = null) {
   return JSON.stringify({
     id_ejecucion: r.id, fecha: r.fecha, version: r.version,
+    destinatario_peticion: r.destinatario ?? null,
+    entregado_a: entregadoA,
     configuracion: r.config.tipo, parametros: r.config,
     sha256_csv: huellaCSV, sha256_configuracion: huellaConfig,
     estado: r.apto ? 'APTO' : 'NO APTO',
@@ -60,10 +62,11 @@ export const ACUERDO = Object.freeze({
   ],
 });
 
-export function acuerdoTexto(idEjecucion, aceptadoEn) {
+export function acuerdoTexto(idEjecucion, aceptadoEn, destinatario = null) {
   return [
     `ACUERDO DE CONFIDENCIALIDAD Y USO · versión ${ACUERDO.version}`,
     `Ejecución: ${idEjecucion}`,
+    ...(destinatario ? [`Destinatario autorizado: ${destinatario.id} (${destinatario.tipo === 'msp' ? 'licencia MSP' : 'IESS'}). Solo esta persona puede recibir los archivos.`] : []),
     `Casilla marcada: ${aceptadoEn}`,
     '',
     ...ACUERDO.condiciones.map((c, i) => `${i + 1}. ${c}`),
@@ -73,17 +76,17 @@ export function acuerdoTexto(idEjecucion, aceptadoEn) {
   ].join('\r\n');
 }
 
-export function ptaHTML(r, { equipo, riesgo, titular, atacante = '', canal = '' }) {
+export function ptaHTML(r, { riesgo, titular, atacante = '', canal = '' }) {
   const a = r.antes, d = r.despues;
   const pasos = r.recorrido.filter(o => o.operacion.startsWith('Supresión'))
     .map(o => [o.operacion, o.regla, `${o.personasAntes} → ${o.personasDespues}`, `${o.atencionesAntes} → ${o.atencionesDespues}`]);
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>PTA R2 Equipo ${esc(equipo)}</title>
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>PTA ${esc(r.id)}</title>
 <style>body{font:14px/1.45 system-ui,sans-serif;max-width:900px;margin:24px auto;padding:0 16px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #888;padding:4px 6px;text-align:left}p{white-space:pre-wrap}</style></head><body>
 <h1>Protocolo Técnico de Anonimización (PTA)</h1>
 <p>Ejercicio académico con datos sintéticos; no sustituye la autorización de la SPDP.</p>
 <h2>1. Datos generales</h2>
 ${tabla(['Campo', 'Valor'], [
-    ['Equipo', equipo], ['Estudio', 'Distribución de la atención en salud mental en la red del IESS, 2023-2025'],
+    ['Destinatario autorizado', r.destinatario ? `${r.destinatario.id} (${r.destinatario.tipo === 'msp' ? 'licencia MSP' : 'IESS'})` : '—'], ['Estudio', 'Distribución de la atención en salud mental en la red del IESS, 2023-2025'],
     ['Cohorte entregada', `${d.personas} personas, ${d.atenciones} atenciones`],
     ['Herramienta', `Prototipo R2 ${r.version}`], ['Configuración', r.config.tipo], ['Fecha', r.fecha.slice(0, 10)],
     ['Ejecución', r.id]])}
@@ -105,8 +108,8 @@ ${tabla(['Indicador', 'Antes', 'Después'], [
 ${tabla(['Operación', 'Regla', 'Personas', 'Atenciones'], pasos)}
 <p>${r.config.l >= 2 ? `Los grupos con menos de ${r.config.l} diagnósticos distintos (3 caracteres) se suprimen.` : 'Esta configuración no trata los grupos homogéneos: solo se alertan en la pantalla del operador.'} No se detallan grupos pequeños para no revelar información sobre ellos.</p>
 <h2>5. Riesgo residual y mitigación</h2><p>${esc(riesgo)}</p>
-<p>Supuesto sobre quién podría intentar reidentificar: ${esc(atacante)}</p>
+${atacante ? `<p>Supuesto sobre quién podría intentar reidentificar: ${esc(atacante)}</p>` : ''}
 <h2>6. Resumen para el titular</h2><p>${esc(titular)}</p>
-<p>Canal para ejercer sus derechos: ${esc(canal)}</p>
+${canal ? `<p>Canal para ejercer sus derechos: ${esc(canal)}</p>` : ''}
 </body></html>`;
 }

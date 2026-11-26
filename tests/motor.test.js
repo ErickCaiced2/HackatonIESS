@@ -6,7 +6,7 @@ import { aCSV, parsearCSV } from '../src/motor/csv.js';
 import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, grupoEdad, validarConfig } from '../src/motor/motor.js';
 import { ptaHTML, trazabilidadJSON, configuracionJSON } from '../src/motor/entregables.js';
 import { sintetico } from './sintetico.js';
-import { nombreCIE10, CATEGORIAS_F, BLOQUES_F } from '../src/motor/cie10.js';
+import { nombreCIE10, CATEGORIAS_F, BLOQUES_F, CAPITULOS, bloquesDe, categoriasDe } from '../src/motor/cie10.js';
 import { zip } from '../src/motor/zip.js';
 
 const preparar = () => {
@@ -106,7 +106,7 @@ test('sin fugas: informe, configuración, PTA y CSV no llevan marcadores', async
   const r = ejecutar(preparar().cohorte, REFERENCIA);
   const salidas = [
     await trazabilidadJSON(r, 'x', 'y'), configuracionJSON(r),
-    ptaHTML(r, { equipo: '01', riesgo: 'texto', titular: '<script>' }), aCSV(r.columnas, r.salida),
+    ptaHTML(r, { riesgo: 'texto', titular: '<script>' }), aCSV(r.columnas, r.salida),
   ].join('\n');
   for (const marcador of ['MARCADOR', '0999999999', '0000000001', 'HC-0000001']) {
     assert.ok(!salidas.includes(marcador), marcador);
@@ -143,4 +143,77 @@ test('filtro: el conteo previo coincide con la cohorte y marca las opciones sin 
     assert.equal(contar(filtro), extraerCohorte(datos.filas, filtro).personas);
   }
   assert.equal(contar({ capitulo: 'V', bloque: '', categoria: 'F20' }), 0);
+});
+
+test('filtro: cada capítulo tiene grupos dentro de su rango y categorías que dependen del grupo', () => {
+  for (const c of CAPITULOS) {
+    const grupos = bloquesDe(c.id);
+    assert.ok(grupos.length > 0, c.id);
+    assert.ok(grupos.every(b => b.desde >= c.desde && b.hasta <= c.hasta && b.desde <= b.hasta), c.id);
+  }
+  const { datos } = preparar();
+  const contar = contadorPorFiltro(datos.filas);
+  // Fuera del capítulo V, las categorías salen de los códigos del archivo.
+  assert.deepEqual(categoriasDe('X', '', contar.codigos).map(([c]) => c), ['J06']);
+  assert.deepEqual(categoriasDe('X', 'J00-J06', contar.codigos).map(([c]) => c), ['J06']);
+  assert.deepEqual(categoriasDe('X', 'J09-J18', contar.codigos), []);
+  assert.deepEqual(categoriasDe('IV', '', contar.codigos), []);
+  // En el capítulo V se usa el catálogo y se acota al grupo.
+  assert.ok(categoriasDe('V', 'F10-F19').every(([c]) => c >= 'F10' && c <= 'F19'));
+  // El conteo por grupo de otro capítulo coincide con la cohorte.
+  for (const filtro of [{ capitulo: 'X', bloque: 'J00-J06', categoria: '' }, { capitulo: 'X', bloque: 'J00-J06', categoria: 'J06' }, { capitulo: 'IV', bloque: 'E10-E14', categoria: '' }]) {
+    assert.equal(contar(filtro), extraerCohorte(datos.filas, filtro).personas);
+  }
+  assert.equal(contar({ capitulo: 'X', bloque: 'J00-J06', categoria: '' }), 1);
+});
+
+test('periodo: lo elige el operador, entre 1980 y el año actual, con inicio ≤ fin', async () => {
+  const { validarPeriodo, esDelEstudio, FILTRO_ESTUDIO } = await import('../src/motor/cie10.js');
+  const { datos } = preparar();
+  const f = (desde, hasta) => ({ ...FILTRO_ESTUDIO, desde, hasta });
+  assert.equal(validarPeriodo(f(2023, 2025), 2026), '');
+  assert.equal(validarPeriodo(f(2025, 2025), 2026), '');
+  assert.equal(validarPeriodo(f(1980, 2026), 2026), '');
+  assert.match(validarPeriodo(f(2025, 2023), 2026), /inicio no puede ser mayor/);
+  assert.match(validarPeriodo(f(1979, 2023), 2026), /entre 1980 y 2026/);
+  assert.match(validarPeriodo(f(2023, 2027), 2026), /entre 1980 y 2026/);
+  assert.throws(() => extraerCohorte(datos.filas, f(2025, 2023)), /inicio no puede ser mayor/);
+  // El periodo del estudio es 2023-2025; otro periodo es exploración.
+  assert.ok(esDelEstudio(f(2023, 2025)));
+  assert.equal(esDelEstudio(f(2024, 2025)), false);
+  // El conteo previo y la cohorte usan el mismo periodo.
+  const contar = contadorPorFiltro(datos.filas);
+  for (const filtro of [f(2023, 2023), f(2025, 2025), f(2024, 2024), f(1980, 2026)]) {
+    const c = extraerCohorte(datos.filas, filtro);
+    assert.equal(contar(filtro), c.personas);
+    assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.menor + c.excluidas.periodo);
+  }
+  assert.equal(extraerCohorte(datos.filas, f(2023, 2023)).periodo, '2023');
+  assert.equal(extraerCohorte(datos.filas, f(2023, 2025)).periodo, '2023-2025');
+});
+
+test('edad: el ancho de los rangos es configurable y 10 y 20 conservan los grupos de referencia', async () => {
+  const { gruposDeEdad, ANCHO_EDAD } = await import('../src/motor/motor.js');
+  assert.deepEqual(gruposDeEdad(20), ['18-39', '40-59', '60-79', '80+']);
+  assert.deepEqual(gruposDeEdad(10), ['18-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']);
+  for (let ancho = ANCHO_EDAD.min; ancho <= ANCHO_EDAD.max; ancho++) {
+    const grupos = gruposDeEdad(ancho);
+    // Cubren 18-79 sin huecos ni solapes, y 80+ va aparte.
+    let siguiente = 18;
+    for (const g of grupos.slice(0, -1)) {
+      const [a, b] = g.split('-').map(Number);
+      assert.equal(a, siguiente, `${ancho}: ${g}`);
+      assert.ok(b >= a);
+      siguiente = b + 1;
+    }
+    assert.equal(siguiente, 80, String(ancho));
+    assert.equal(grupos.at(-1), '80+');
+  }
+  assert.deepEqual(validarConfig({ ...PROPIA, anchoEdad: 15 }), []);
+  assert.equal(validarConfig({ ...PROPIA, anchoEdad: ANCHO_EDAD.min - 1 }).length, 1);
+  assert.equal(validarConfig({ ...PROPIA, anchoEdad: ANCHO_EDAD.max + 1 }).length, 1);
+  assert.equal(validarConfig({ ...PROPIA, anchoEdad: 12.5 }).length, 1);
+  const { cohorte } = preparar();
+  const r = ejecutar(cohorte, { ...PROPIA, anchoEdad: 15 });
+  assert.ok(r.salida.every(f => gruposDeEdad(15).includes(f.grupo_edad)));
 });

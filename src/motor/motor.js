@@ -1,7 +1,7 @@
 // Motor sin interfaz: carga, cohorte, anonimización, medición y trazabilidad.
 import { COLUMNAS, ALIAS, IDENTIFICADORES, CUASIIDENTIFICADORES, REGIONES, VERSION } from './config.js';
 import { parsearCSV } from './csv.js';
-import { FILTRO_ESTUDIO, coincide, esDelEstudio, etiquetaFiltro } from './cie10.js';
+import { FILTRO_ESTUDIO, coincide, esDelEstudio, etiquetaFiltro, enPeriodo, etiquetaPeriodo, validarPeriodo } from './cie10.js';
 
 const distintos = arr => new Set(arr).size;
 const personas = (filas, id) => distintos(filas.map(f => f[id]));
@@ -47,34 +47,42 @@ export function leer(texto) {
 
 // Cuántas personas daría cada filtro, con las mismas reglas de edad y periodo de la cohorte.
 export function contadorPorFiltro(filas) {
-  const porCodigo = new Map();
+  const porCodigo = new Map(); // código de 3 caracteres -> fecha_ingreso -> personas
   for (const f of filas) {
-    if (Number(f.edad) < 18 || f.fecha_ingreso < '2023-01-01' || f.fecha_ingreso > '2025-12-31') continue;
+    if (Number(f.edad) < 18) continue;
     const codigo = f.diagnostico_cie10.slice(0, 3);
-    if (!porCodigo.has(codigo)) porCodigo.set(codigo, new Set());
-    porCodigo.get(codigo).add(f.cedula);
+    if (!porCodigo.has(codigo)) porCodigo.set(codigo, new Map());
+    const porFecha = porCodigo.get(codigo);
+    if (!porFecha.has(f.fecha_ingreso)) porFecha.set(f.fecha_ingreso, new Set());
+    porFecha.get(f.fecha_ingreso).add(f.cedula);
   }
-  return filtro => {
+  const contar = filtro => {
     const personasFiltro = new Set();
-    for (const [codigo, ids] of porCodigo) {
-      if (coincide(codigo, filtro)) for (const id of ids) personasFiltro.add(id);
+    for (const [codigo, porFecha] of porCodigo) {
+      if (!coincide(codigo, filtro)) continue;
+      for (const [fecha, ids] of porFecha) if (enPeriodo(fecha, filtro)) for (const id of ids) personasFiltro.add(id);
     }
     return personasFiltro.size;
   };
+  // Códigos de 3 caracteres del archivo: alimentan las categorías fuera del capítulo V.
+  contar.codigos = [...porCodigo.keys()];
+  return contar;
 }
 
 export function extraerCohorte(filas, filtro = FILTRO_ESTUDIO) {
+  const errorPeriodo = validarPeriodo(filtro);
+  if (errorPeriodo) throw new Error(errorPeriodo);
   const excluidas = { diagnostico: 0, menor: 0, periodo: 0 };
   const cohorte = filas.filter(f => {
     if (!coincide(f.diagnostico_cie10, filtro)) excluidas.diagnostico++;
     else if (Number(f.edad) < 18) excluidas.menor++;
-    else if (f.fecha_ingreso < '2023-01-01' || f.fecha_ingreso > '2025-12-31') excluidas.periodo++;
+    else if (!enPeriodo(f.fecha_ingreso, filtro)) excluidas.periodo++;
     else return true;
     return false;
   });
   return {
     filas: cohorte, excluidas, entrada: filas.length,
-    filtro: { ...filtro }, etiquetaFiltro: etiquetaFiltro(filtro), esEstudio: esDelEstudio(filtro),
+    filtro: { ...filtro }, etiquetaFiltro: etiquetaFiltro(filtro), periodo: etiquetaPeriodo(filtro), esEstudio: esDelEstudio(filtro),
     personas: personas(cohorte, 'cedula'), atenciones: cohorte.length,
   };
 }
@@ -164,7 +172,9 @@ export function consultaEstudio(cohorte, salida) {
 export function validarConfig(c) {
   const e = [];
   if (!Number.isInteger(c.k) || c.k < 5) e.push('k debe ser un entero de 5 o más.');
-  if (![10, 20].includes(c.anchoEdad)) e.push('El rango de edad debe ser de 10 o 20 años.');
+  if (!Number.isInteger(c.anchoEdad) || c.anchoEdad < ANCHO_EDAD.min || c.anchoEdad > ANCHO_EDAD.max) {
+    e.push(`El rango de edad debe ser un entero entre ${ANCHO_EDAD.min} y ${ANCHO_EDAD.max} años.`);
+  }
   if (!['region', 'provincia'].includes(c.ubicacion)) e.push('Ubicación inválida.');
   if (!['mes', 'anio'].includes(c.fecha)) e.push('Nivel de fecha inválido.');
   if (!Number.isInteger(c.l) || c.l < 1) e.push('l debe ser un entero de 1 o más.');
@@ -174,13 +184,36 @@ export function validarConfig(c) {
   return e;
 }
 
+// Ancho de los grupos de edad que el operador puede elegir (en años).
+export const ANCHO_EDAD = Object.freeze({ min: 5, max: 60 });
+
+// Inicio de cada grupo de edad. Los cortes caen en múltiplos del ancho; el primer grupo empieza
+// en 18 y se elige el primer corte que deja ese grupo más cercano al ancho (con 20: 18-39, 40-59,
+// 60-79; con 10: 18-29, 30-39…). Un último tramo menor que medio ancho se une al anterior. 80+ aparte.
+function iniciosDeEdad(ancho) {
+  const m1 = Math.ceil(19 / ancho) * ancho, m2 = m1 + ancho;
+  const primero = Math.abs(m1 - 18 - ancho) < Math.abs(m2 - 18 - ancho) ? m1 : m2;
+  const inicios = [18];
+  for (let c = primero; c < 80; c += ancho) inicios.push(c);
+  if (inicios.length > 1 && 80 - inicios.at(-1) < ancho / 2) inicios.pop();
+  return inicios;
+}
+
 export function grupoEdad(edad, ancho) {
   if (edad >= 80) return '80+';
-  const inicio = ancho === 20
-    ? (edad < 40 ? 18 : edad < 60 ? 40 : 60)
-    : (edad < 30 ? 18 : Math.floor(edad / 10) * 10);
-  const fin = ancho === 20 ? (inicio === 18 ? 39 : inicio + 19) : (inicio === 18 ? 29 : inicio + 9);
-  return `${inicio}-${fin}`;
+  const inicios = iniciosDeEdad(ancho);
+  const i = inicios.findLastIndex(x => x <= edad);
+  return `${inicios[i]}-${(inicios[i + 1] ?? 80) - 1}`;
+}
+
+// Lista de grupos que produce un ancho, para mostrarla antes de proteger.
+export function gruposDeEdad(ancho) {
+  const grupos = [];
+  for (let edad = 18; edad <= 80; edad++) {
+    const g = grupoEdad(edad, ancho);
+    if (grupos.at(-1) !== g) grupos.push(g);
+  }
+  return grupos;
 }
 
 function enteroAleatorio(n) { // uniforme en [0, n)
@@ -213,13 +246,13 @@ export function plan(config) {
     edad: ['Generalización', `Rangos de ${config.anchoEdad} años desde 18; 80+; primera atención`, 'grupo_edad'],
     sexo: ['Conservar', '', 'sexo'],
     provincia: config.ubicacion === 'region'
-      ? ['Jerarquía', 'Provincia → región', 'region'] : ['Conservar', '', 'provincia'],
+      ? ['Jerarquía', 'De provincia a región', 'region'] : ['Conservar', '', 'provincia'],
     fecha_ingreso: ['Generalización', config.fecha === 'mes' ? 'AAAA-MM' : 'AAAA', columnaFecha(config)],
     tipo_atencion: ['Conservar', '', 'tipo_atencion'],
     diagnostico_cie10: ['Conservar', '', 'diagnostico_cie10'],
     dias_estancia: config.topeEstancia === null
       ? ['Conservar', '', 'dias_estancia']
-      : ['Agrupar extremos', `${config.topeEstancia} o más → ${config.topeEstancia}+`, 'dias_estancia'],
+      : ['Agrupar extremos', `${config.topeEstancia} días o más se agrupan como ${config.topeEstancia}+`, 'dias_estancia'],
   };
   return COLUMNAS.map(c => {
     const [tecnica, parametro, salida] = p[c.nombre] ?? ['Supresión', '', null];
@@ -383,7 +416,7 @@ export function ejecutar(cohorte, config, nombreOriginal) {
   const paso = (operacion, regla, pa, pd, aa, ad) =>
     ({ operacion, regla, personasAntes: pa, personasDespues: pd, atencionesAntes: aa, atencionesDespues: ad });
   const recorrido = [
-    paso('Transformar columnas', 'Ver detalle por columna',
+    paso('Transformar columnas', 'Técnica definida para cada una de las 28 columnas',
       cohorte.personas, cohorte.personas, cohorte.atenciones, cohorte.atenciones),
     ...supresion.operaciones,
   ];
@@ -398,10 +431,10 @@ export function ejecutar(cohorte, config, nombreOriginal) {
     consulta: consultaEstudio(cohorte.filas, salida),
     conservadas: 100 * despues.personas / cohorte.personas,
     cohorte: { entrada: cohorte.entrada, excluidas: cohorte.excluidas, filtro: cohorte.filtro,
-      etiquetaFiltro: cohorte.etiquetaFiltro, esEstudio: cohorte.esEstudio, personas: cohorte.personas, atenciones: cohorte.atenciones },
+      etiquetaFiltro: cohorte.etiquetaFiltro, periodo: cohorte.periodo, esEstudio: cohorte.esEstudio, personas: cohorte.personas, atenciones: cohorte.atenciones },
     traza,
     recorrido: [
-      paso('Cohorte', `${cohorte.etiquetaFiltro}, 18 años o más, 2023-2025`, null, cohorte.personas, cohorte.entrada, cohorte.atenciones),
+      paso('Cohorte', `${cohorte.etiquetaFiltro}, 18 años o más, ${cohorte.periodo}`, null, cohorte.personas, cohorte.entrada, cohorte.atenciones),
       ...recorrido,
     ],
     verificaciones,

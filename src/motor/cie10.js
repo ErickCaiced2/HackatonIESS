@@ -1,5 +1,6 @@
-// Catálogo CIE-10: los 22 capítulos y, del capítulo V (salud mental), grupos y categorías
-// de 3 caracteres. No incluye subcategorías (F32.1) ni categorías de otros capítulos.
+// Catálogo CIE-10: los 22 capítulos, sus grupos (bloques) y, del capítulo V (salud mental),
+// las categorías de 3 caracteres con nombre. No incluye subcategorías (F32.1) ni nombres de
+// categorías de otros capítulos: fuera del V las categorías salen de los códigos del archivo.
 // Nombres abreviados, escritos de memoria: VERIFICAR contra la publicación oficial OMS/OPS.
 const rango = ([id, desde, hasta, nombre]) => ({ id, desde, hasta, nombre });
 
@@ -123,17 +124,287 @@ F98|Otros trastornos de inicio en la infancia y adolescencia
 F99|Trastorno mental no especificado
 `.trim().split('\n').map(l => l.split('|')));
 
+// Grupos (bloques) de los demás capítulos: «desde-hasta|nombre» por línea.
+const OTROS_BLOQUES = {
+  I: `A00-A09|Infecciones intestinales
+A15-A19|Tuberculosis
+A20-A28|Zoonosis bacterianas
+A30-A49|Otras enfermedades bacterianas
+A50-A64|Infecciones de transmisión predominantemente sexual
+A65-A69|Otras enfermedades por espiroquetas
+A70-A74|Otras enfermedades por clamidias
+A75-A79|Rickettsiosis
+A80-A89|Infecciones virales del sistema nervioso central
+A90-A99|Fiebres virales por artrópodos y fiebres hemorrágicas
+B00-B09|Infecciones virales de la piel y las mucosas
+B15-B19|Hepatitis viral
+B20-B24|Enfermedad por VIH
+B25-B34|Otras enfermedades virales
+B35-B49|Micosis
+B50-B64|Enfermedades por protozoarios
+B65-B83|Helmintiasis
+B85-B89|Pediculosis, acariasis y otras infestaciones
+B90-B94|Secuelas de enfermedades infecciosas y parasitarias
+B95-B98|Agentes bacterianos, virales y otros agentes infecciosos
+B99-B99|Otras enfermedades infecciosas`,
+  II: `C00-C14|Labio, cavidad bucal y faringe
+C15-C26|Órganos digestivos
+C30-C39|Órganos respiratorios e intratorácicos
+C40-C41|Huesos y cartílagos articulares
+C43-C44|Melanoma y otros tumores de la piel
+C45-C49|Tejidos mesoteliales y tejidos blandos
+C50-C50|Mama
+C51-C58|Órganos genitales femeninos
+C60-C63|Órganos genitales masculinos
+C64-C68|Vías urinarias
+C69-C72|Ojo, encéfalo y otras partes del sistema nervioso central
+C73-C75|Tiroides y otras glándulas endocrinas
+C76-C80|Sitios mal definidos, secundarios y no especificados
+C81-C96|Tejido linfático, hematopoyético y afines
+C97-C97|Sitios múltiples independientes
+D00-D09|Tumores in situ
+D10-D36|Tumores benignos
+D37-D48|Tumores de comportamiento incierto o desconocido`,
+  III: `D50-D53|Anemias nutricionales
+D55-D59|Anemias hemolíticas
+D60-D64|Anemias aplásicas y otras anemias
+D65-D69|Defectos de la coagulación, púrpura y otras afecciones hemorrágicas
+D70-D77|Otras enfermedades de la sangre y de los órganos hematopoyéticos
+D80-D89|Trastornos del mecanismo de la inmunidad`,
+  IV: `E00-E07|Trastornos de la glándula tiroides
+E10-E14|Diabetes mellitus
+E15-E16|Otros trastornos de la glucosa y de la secreción pancreática
+E20-E35|Trastornos de otras glándulas endocrinas
+E40-E46|Desnutrición
+E50-E64|Otras deficiencias nutricionales
+E65-E68|Obesidad y otros tipos de hiperalimentación
+E70-E90|Trastornos metabólicos`,
+  VI: `G00-G09|Enfermedades inflamatorias del sistema nervioso central
+G10-G14|Atrofias sistémicas del sistema nervioso central
+G20-G26|Trastornos extrapiramidales y del movimiento
+G30-G32|Otras enfermedades degenerativas del sistema nervioso
+G35-G37|Enfermedades desmielinizantes del sistema nervioso central
+G40-G47|Trastornos episódicos y paroxísticos
+G50-G59|Trastornos de los nervios, raíces y plexos nerviosos
+G60-G64|Polineuropatías y otros trastornos del sistema nervioso periférico
+G70-G73|Enfermedades de la unión neuromuscular y del músculo
+G80-G83|Parálisis cerebral y otros síndromes paralíticos
+G90-G99|Otros trastornos del sistema nervioso`,
+  VII: `H00-H06|Párpado, aparato lagrimal y órbita
+H10-H13|Conjuntiva
+H15-H22|Esclerótica, córnea, iris y cuerpo ciliar
+H25-H28|Cristalino
+H30-H36|Coroides y retina
+H40-H42|Glaucoma
+H43-H45|Cuerpo vítreo y globo ocular
+H46-H48|Nervio óptico y vías ópticas
+H49-H52|Músculos oculares, movimiento binocular, acomodación y refracción
+H53-H54|Alteraciones de la visión y ceguera
+H55-H59|Otros trastornos del ojo y sus anexos`,
+  VIII: `H60-H62|Oído externo
+H65-H75|Oído medio y mastoides
+H80-H83|Oído interno
+H90-H95|Otros trastornos del oído`,
+  IX: `I00-I02|Fiebre reumática aguda
+I05-I09|Enfermedades cardíacas reumáticas crónicas
+I10-I15|Enfermedades hipertensivas
+I20-I25|Enfermedades isquémicas del corazón
+I26-I28|Enfermedad cardiopulmonar y de la circulación pulmonar
+I30-I52|Otras formas de enfermedad del corazón
+I60-I69|Enfermedades cerebrovasculares
+I70-I79|Enfermedades de las arterias, arteriolas y capilares
+I80-I89|Enfermedades de las venas y de los vasos y ganglios linfáticos
+I95-I99|Otros trastornos del sistema circulatorio`,
+  X: `J00-J06|Infecciones agudas de las vías respiratorias superiores
+J09-J18|Influenza y neumonía
+J20-J22|Otras infecciones agudas de las vías respiratorias inferiores
+J30-J39|Otras enfermedades de las vías respiratorias superiores
+J40-J47|Enfermedades crónicas de las vías respiratorias inferiores
+J60-J70|Enfermedades del pulmón debidas a agentes externos
+J80-J84|Otras enfermedades respiratorias que afectan el intersticio
+J85-J86|Afecciones supurativas y necróticas de las vías respiratorias inferiores
+J90-J94|Otras enfermedades de la pleura
+J95-J99|Otras enfermedades del sistema respiratorio`,
+  XI: `K00-K14|Cavidad bucal, glándulas salivales y maxilares
+K20-K31|Esófago, estómago y duodeno
+K35-K38|Apéndice
+K40-K46|Hernia
+K50-K52|Enteritis y colitis no infecciosas
+K55-K64|Otras enfermedades de los intestinos
+K65-K67|Peritoneo
+K70-K77|Hígado
+K80-K87|Vesícula biliar, vías biliares y páncreas
+K90-K93|Otras enfermedades del sistema digestivo`,
+  XII: `L00-L08|Infecciones de la piel y del tejido subcutáneo
+L10-L14|Trastornos flictenulares
+L20-L30|Dermatitis y eczema
+L40-L45|Trastornos papuloescamosos
+L50-L54|Urticaria y eritema
+L55-L59|Trastornos de la piel relacionados con radiación
+L60-L75|Trastornos de las faneras
+L80-L99|Otros trastornos de la piel y del tejido subcutáneo`,
+  XIII: `M00-M25|Artropatías
+M30-M36|Trastornos sistémicos del tejido conjuntivo
+M40-M54|Dorsopatías
+M60-M79|Trastornos de los tejidos blandos
+M80-M94|Osteopatías y condropatías
+M95-M99|Otros trastornos del sistema osteomuscular`,
+  XIV: `N00-N08|Enfermedades glomerulares
+N10-N16|Enfermedad renal tubulointersticial
+N17-N19|Insuficiencia renal
+N20-N23|Litiasis urinaria
+N25-N29|Otros trastornos del riñón y del uréter
+N30-N39|Otras enfermedades del sistema urinario
+N40-N51|Enfermedades de los órganos genitales masculinos
+N60-N64|Trastornos de la mama
+N70-N77|Enfermedades inflamatorias de los órganos pélvicos femeninos
+N80-N98|Trastornos no inflamatorios de los órganos genitales femeninos
+N99-N99|Otros trastornos del sistema genitourinario`,
+  XV: `O00-O08|Embarazo terminado en aborto
+O10-O16|Edema, proteinuria y trastornos hipertensivos del embarazo
+O20-O29|Otros trastornos maternos relacionados con el embarazo
+O30-O48|Atención materna por el feto, la cavidad amniótica o problemas del parto
+O60-O75|Complicaciones del trabajo de parto y del parto
+O80-O84|Parto
+O85-O92|Complicaciones del puerperio
+O94-O99|Otras afecciones obstétricas`,
+  XVI: `P00-P04|Feto y recién nacido afectados por factores maternos
+P05-P08|Duración de la gestación y crecimiento fetal
+P10-P15|Traumatismo del nacimiento
+P20-P29|Trastornos respiratorios y cardiovasculares del periodo perinatal
+P35-P39|Infecciones del periodo perinatal
+P50-P61|Trastornos hemorrágicos y hematológicos del feto y del recién nacido
+P70-P74|Trastornos endocrinos y metabólicos transitorios
+P75-P78|Trastornos del sistema digestivo del feto y del recién nacido
+P80-P83|Afecciones del tegumento y de la regulación de la temperatura
+P90-P96|Otros trastornos del periodo perinatal`,
+  XVII: `Q00-Q07|Malformaciones del sistema nervioso
+Q10-Q18|Malformaciones del ojo, del oído, de la cara y del cuello
+Q20-Q28|Malformaciones del sistema circulatorio
+Q30-Q34|Malformaciones del sistema respiratorio
+Q35-Q37|Fisura del paladar y labio leporino
+Q38-Q45|Otras malformaciones del sistema digestivo
+Q50-Q56|Malformaciones de los órganos genitales
+Q60-Q64|Malformaciones del sistema urinario
+Q65-Q79|Malformaciones del sistema osteomuscular
+Q80-Q89|Otras malformaciones congénitas
+Q90-Q99|Anomalías cromosómicas`,
+  XVIII: `R00-R09|Síntomas de los sistemas circulatorio y respiratorio
+R10-R19|Síntomas del sistema digestivo y el abdomen
+R20-R23|Síntomas de la piel y el tejido subcutáneo
+R25-R29|Síntomas de los sistemas nervioso y osteomuscular
+R30-R39|Síntomas del sistema urinario
+R40-R46|Síntomas del conocimiento, la percepción, las emociones y la conducta
+R47-R49|Síntomas del habla y de la voz
+R50-R69|Síntomas y signos generales
+R70-R79|Hallazgos anormales en sangre sin diagnóstico
+R80-R82|Hallazgos anormales en orina sin diagnóstico
+R83-R89|Hallazgos anormales en otros líquidos, sustancias y tejidos
+R90-R94|Hallazgos anormales en imágenes y pruebas funcionales
+R95-R99|Causas mal definidas y desconocidas de mortalidad`,
+  XIX: `S00-S09|Traumatismos de la cabeza
+S10-S19|Traumatismos del cuello
+S20-S29|Traumatismos del tórax
+S30-S39|Traumatismos del abdomen, región lumbosacra, columna lumbar y pelvis
+S40-S49|Traumatismos del hombro y del brazo
+S50-S59|Traumatismos del codo y del antebrazo
+S60-S69|Traumatismos de la muñeca y de la mano
+S70-S79|Traumatismos de la cadera y del muslo
+S80-S89|Traumatismos de la rodilla y de la pierna
+S90-S99|Traumatismos del tobillo y del pie
+T00-T07|Traumatismos de múltiples regiones del cuerpo
+T08-T14|Traumatismos de parte no especificada del tronco, miembro o región
+T15-T19|Cuerpo extraño que penetra por orificio natural
+T20-T32|Quemaduras y corrosiones
+T33-T35|Congelamiento
+T36-T50|Envenenamiento por drogas, medicamentos y sustancias biológicas
+T51-T65|Efectos tóxicos de sustancias de procedencia no medicinal
+T66-T78|Otros efectos y los no especificados de causas externas
+T79-T79|Complicaciones precoces de traumatismos
+T80-T88|Complicaciones de la atención médica y quirúrgica
+T90-T98|Secuelas de traumatismos, envenenamientos y otras causas externas`,
+  XX: `V01-X59|Accidentes
+X60-X84|Lesiones autoinfligidas intencionalmente
+X85-Y09|Agresiones
+Y10-Y34|Eventos de intención no determinada
+Y35-Y36|Intervención legal y operaciones de guerra
+Y40-Y84|Complicaciones de la atención médica y quirúrgica
+Y85-Y89|Secuelas de causas externas
+Y90-Y98|Factores suplementarios`,
+  XXI: `Z00-Z13|Exámenes e investigaciones
+Z20-Z29|Riesgos para la salud por enfermedades transmisibles
+Z30-Z39|Salud reproductiva
+Z40-Z54|Procedimientos específicos y cuidados de salud
+Z55-Z65|Riesgos por circunstancias socioeconómicas y psicosociales
+Z70-Z76|Contacto con los servicios de salud por otras circunstancias
+Z80-Z99|Historia familiar y personal, y afecciones que influyen en la salud`,
+  XXII: `U00-U49|Asignación provisoria de nuevas enfermedades de etiología incierta
+U80-U89|Resistencia a antimicrobianos y antineoplásicos`,
+};
+
+// Grupos de cada capítulo. Un grupo de un solo código se nombra con ese código (F99, C50).
+export const BLOQUES = Object.fromEntries([
+  ['V', BLOQUES_F],
+  ...Object.entries(OTROS_BLOQUES).map(([cap, texto]) => [cap, texto.split('\n').map(l => {
+    const [rangoTexto, nombre] = l.split('|');
+    const [desde, hasta] = rangoTexto.split('-');
+    return rango([desde === hasta ? desde : rangoTexto, desde, hasta, nombre]);
+  })]),
+]);
+export const bloquesDe = capitulo => BLOQUES[capitulo] ?? [];
+
+// Categorías de 3 caracteres para los selectores: [código, nombre].
+// Capítulo V: el catálogo completo. Otros capítulos: los códigos presentes en el archivo.
+export function categoriasDe(capitulo, bloque, codigosDelArchivo = []) {
+  const cap = CAPITULOS.find(c => c.id === capitulo);
+  const r = bloquesDe(capitulo).find(b => b.id === bloque) ?? cap;
+  if (!r) return [];
+  const dentro = c => c >= r.desde && c <= r.hasta;
+  if (capitulo === 'V') return Object.entries(CATEGORIAS_F).filter(([c]) => dentro(c));
+  return [...new Set(codigosDelArchivo)].filter(c => /^[A-Z]\d{2}$/.test(c) && dentro(c)).sort()
+    .map(c => [c, bloquesDe(capitulo).find(b => c >= b.desde && c <= b.hasta)?.nombre ?? cap.nombre]);
+}
+
 // Filtro que pide el estudio.
-export const FILTRO_ESTUDIO = Object.freeze({ capitulo: 'V', bloque: '', categoria: '' });
-export const esDelEstudio = f => f.capitulo === 'V' && !f.bloque && !f.categoria;
+// El periodo (años de fecha_ingreso) lo elige el operador; el estudio pide 2023-2025.
+export const PERIODO_MINIMO = 1980;
+export const anioActual = () => new Date().getFullYear();
+export const PERIODO_ESTUDIO = Object.freeze({ desde: 2023, hasta: 2025 });
+export const FILTRO_ESTUDIO = Object.freeze({ capitulo: 'V', bloque: '', categoria: '', ...PERIODO_ESTUDIO });
+
+// Los filtros sin periodo usan el del estudio.
+export const periodo = f => ({ desde: Number(f.desde ?? PERIODO_ESTUDIO.desde), hasta: Number(f.hasta ?? PERIODO_ESTUDIO.hasta) });
+export const etiquetaPeriodo = f => {
+  const { desde, hasta } = periodo(f);
+  return desde === hasta ? String(desde) : `${desde}-${hasta}`;
+};
+export function validarPeriodo(f, actual = anioActual()) {
+  const { desde, hasta } = periodo(f);
+  if (!Number.isInteger(desde) || !Number.isInteger(hasta)) return 'El periodo debe tener un año de inicio y uno de fin.';
+  if (desde < PERIODO_MINIMO || hasta > actual) return `El periodo debe estar entre ${PERIODO_MINIMO} y ${actual}.`;
+  if (desde > hasta) return 'El año de inicio no puede ser mayor que el año de fin.';
+  return '';
+}
+// fecha_ingreso en formato AAAA-MM-DD.
+export const enPeriodo = (fecha, f) => {
+  const { desde, hasta } = periodo(f);
+  return fecha >= `${desde}-01-01` && fecha <= `${hasta}-12-31`;
+};
+
+const esPeriodoDelEstudio = f => {
+  const p = periodo(f);
+  return p.desde === PERIODO_ESTUDIO.desde && p.hasta === PERIODO_ESTUDIO.hasta;
+};
+const esDiagnosticoDelEstudio = f => f.capitulo === 'V' && !f.bloque && !f.categoria;
+export const esDelEstudio = f => esDiagnosticoDelEstudio(f) && esPeriodoDelEstudio(f);
 
 export function coincide(codigo, filtro) {
   // Regla exacta del diccionario para el estudio: el código empieza con «F».
-  if (esDelEstudio(filtro)) return codigo.startsWith('F');
+  if (esDiagnosticoDelEstudio(filtro)) return codigo.startsWith('F');
   const c = codigo.slice(0, 3);
   if (!/^[A-Z]\d{2}$/.test(c)) return false;
   const r = filtro.categoria ? { desde: filtro.categoria, hasta: filtro.categoria }
-    : BLOQUES_F.find(b => b.id === filtro.bloque) ?? CAPITULOS.find(x => x.id === filtro.capitulo);
+    : bloquesDe(filtro.capitulo).find(b => b.id === filtro.bloque) ?? CAPITULOS.find(x => x.id === filtro.capitulo);
   return !!r && c >= r.desde && c <= r.hasta;
 }
 

@@ -1,0 +1,138 @@
+// Registro de ejecuciones y descargas para el tablero.
+// Solo guarda metadatos de cada ejecución: nunca filas, cédulas ni valores de celdas.
+// Por no repudio, el registro solo crece: no hay operación para borrar ni editar ejecuciones.
+const CLAVE = 'iess.registro.v1';
+
+const cuantos = (lista, clave) => lista.reduce((a, x) => ({ ...a, [x[clave]]: (a[x[clave]] ?? 0) + 1 }), {});
+
+// Resume una ejecución del motor en una entrada del registro.
+export function entradaDeEjecucion(r, { archivo = '', solicitadoEn = r.fecha } = {}) {
+  const aplicadas = r.traza.filter(t => t.estado === 'Aplicada' && t.tecnica !== 'Conservar');
+  const clasificadas = r.traza.filter(t => t.clasificacion);
+  return {
+    id: r.id,
+    archivo,
+    configuracion: r.config.tipo,
+    destinatario: r.destinatario ? { tipo: r.destinatario.tipo, id: r.destinatario.id } : null,
+    peticionEn: r.peticionEn ?? null,
+    periodo: r.cohorte.periodo ?? '',
+    solicitadoEn,
+    elaboradoEn: r.fecha,
+    kMeta: r.config.k,
+    kAntes: r.antes.kMin,
+    kDespues: r.despues.kMin,
+    anonimizaciones: aplicadas.length,
+    tecnicas: cuantos(aplicadas, 'tecnica'),
+    celdasModificadas: aplicadas.reduce((a, t) => a + t.valores_modificados, 0),
+    personasAntes: r.cohorte.personas,
+    personasDespues: r.despues.personas,
+    columnasClasificadas: clasificadas.length,
+    totalColumnas: r.traza.length,
+    clasificaciones: cuantos(clasificadas, 'clasificacion'),
+    // Qué se hizo con cada columna: nombres, clasificación y técnica; nunca valores.
+    columnas: r.traza.map(t => ({
+      columna: t.columna_entrada, clasificacion: t.clasificacion, categoria: t.categoria_especial,
+      solicitada: t.solicitada, tecnica: t.tecnica, parametro: t.parametro || '', salida: t.columna_salida,
+      modificadas: t.valores_modificados, estado: t.estado,
+    })),
+    verificacionesCorrectas: r.verificaciones.filter(v => v.ok).length,
+    verificacionesTotal: r.verificaciones.length,
+    apto: r.apto,
+    descargas: [],
+  };
+}
+
+// Día local AAAA-MM-DD de una fecha ISO (los filtros del tablero son por día).
+export function diaLocal(iso) {
+  const d = new Date(iso);
+  const dos = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`;
+}
+
+// Filtros del tablero: fechas de petición y de entrega (descarga) y un texto libre.
+export function filtrarRegistro(lista, { peticionDesde = '', peticionHasta = '', entregaDesde = '', entregaHasta = '', texto = '' } = {}) {
+  const enRango = (dia, desde, hasta) => (!desde || dia >= desde) && (!hasta || dia <= hasta);
+  const q = texto.trim().toLowerCase();
+  return lista.filter(e => {
+    if (!enRango(diaLocal(e.solicitadoEn), peticionDesde, peticionHasta)) return false;
+    if ((entregaDesde || entregaHasta) && !e.descargas.some(d => enRango(diaLocal(d.fecha), entregaDesde, entregaHasta))) return false;
+    if (q && ![e.id, e.archivo, e.destinatario?.id, ...e.descargas.map(d => d.entregadoA?.id)]
+      .some(v => String(v ?? '').toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+
+export const TAMANOS_PAGINA = Object.freeze([10, 20, 50, 100]);
+export function paginar(lista, pagina, porPagina = 10) {
+  const total = lista.length, paginas = Math.max(1, Math.ceil(total / porPagina));
+  const actual = Math.min(Math.max(1, pagina), paginas);
+  const inicio = (actual - 1) * porPagina;
+  return { filas: lista.slice(inicio, inicio + porPagina), pagina: actual, paginas, total, desde: total ? inicio + 1 : 0, hasta: Math.min(inicio + porPagina, total) };
+}
+
+// Totales para las tarjetas del tablero.
+export function resumenRegistro(lista) {
+  const descargas = lista.flatMap(e => e.descargas.map(d => ({ ...d, id: e.id })))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  return {
+    ejecuciones: lista.length,
+    aptas: lista.filter(e => e.apto).length,
+    anonimizaciones: lista.reduce((a, e) => a + e.anonimizaciones, 0),
+    descargas: descargas.length,
+    ultima: lista[0] ?? null,
+    ultimaDescarga: descargas[0] ?? null,
+  };
+}
+
+function memoria() {
+  const m = new Map();
+  return { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k) };
+}
+
+// El almacén por defecto es el localStorage del navegador; si no existe, la memoria.
+export function crearRegistro(almacen = globalThis.localStorage) {
+  let persistente = !!almacen;
+  if (almacen) {
+    try { almacen.setItem(CLAVE + '.prueba', '1'); almacen.removeItem(CLAVE + '.prueba'); } catch { persistente = false; }
+  }
+  const destino = persistente ? almacen : memoria();
+  const lista = () => {
+    try {
+      const v = JSON.parse(destino.getItem(CLAVE) ?? '[]');
+      return Array.isArray(v) ? v : [];
+    } catch { return []; }
+  };
+  // Sin límite: no se descartan ejecuciones antiguas. Si el almacén se llena, falla con un error visible.
+  const guardar = l => {
+    try { destino.setItem(CLAVE, JSON.stringify(l)); }
+    catch { throw new Error('No se pudo guardar el registro de ejecuciones: el almacenamiento del navegador está lleno.'); }
+  };
+  return {
+    persistente,
+    lista,
+    // La más reciente primero.
+    agregar(entrada) {
+      if (lista().some(e => e.id === entrada.id)) return false; // una ejecución registrada no se reemplaza
+      guardar([entrada, ...lista()]);
+      return true;
+    },
+    // La petición (a quién va dirigida) se registra una sola vez por ejecución.
+    peticion(id, destinatario, fecha = new Date().toISOString()) {
+      const l = lista();
+      const e = l.find(x => x.id === id);
+      if (!e || e.destinatario) return false;
+      e.destinatario = { tipo: destinatario.tipo, id: destinatario.id };
+      e.peticionEn = fecha;
+      guardar(l);
+      return true;
+    },
+    descarga(id, archivo, fecha = new Date().toISOString(), entregadoA = null) {
+      const l = lista();
+      const e = l.find(x => x.id === id);
+      if (!e) return false;
+      e.descargas.push({ archivo, fecha, entregadoA });
+      guardar(l);
+      return true;
+    },
+  };
+}
