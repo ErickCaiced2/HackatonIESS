@@ -1,7 +1,9 @@
 // Panel en una sola vista. Los datos viven solo en memoria.
 import { REFERENCIA, PROPIA } from '../motor/config.js';
-import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, plan, validarConfig } from '../motor/motor.js';
+import { extraerCohorte, contadorPorFiltro, medir, ejecutar, plan, validarConfig } from '../motor/motor.js';
 import { aCSV } from '../motor/csv.js';
+import { analizar, decisionesIniciales, estandarizar } from '../ia/estandarizar.js';
+import { panelRevision } from './revision.js';
 import { zip } from '../motor/zip.js';
 import { CAPITULOS, BLOQUES_F, CATEGORIAS_F, FILTRO_ESTUDIO, esDelEstudio, nombreCIE10 } from '../motor/cie10.js';
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
@@ -10,7 +12,7 @@ import { h, boton, tabla, etiqueta, aviso, detalle, tablaConBusqueda, confirmar 
 
 const sinResultados = () => ({ r: null, historial: {} });
 const inicial = () => ({
-  datos: null, archivo: '', cohorte: null, antes: null, ...sinResultados(),
+  datos: null, revision: null, archivo: '', cohorte: null, antes: null, ...sinResultados(),
   config: { ...REFERENCIA }, propia: { ...PROPIA }, filtro: { ...FILTRO_ESTUDIO },
   deshacer: null, desactualizado: false,
 });
@@ -28,7 +30,7 @@ const anunciar = texto => { $('anuncio').textContent = texto; };
 // ---------- Errores y acciones largas ----------
 // Cada error explica cómo recuperarse.
 const SOLUCIONES = [
-  [/UTF-8/, 'Guarde el archivo como CSV UTF-8, separado por comas, y vuelva a elegirlo.'],
+  [/separador|encabezado|Excel|primera fila/, 'Use un archivo de texto con una fila de nombres de columna y una fila por atención.'],
   [/Faltan columnas|sin clasificar|repetidas/, 'Use un archivo con las 28 columnas del diccionario, sin cambiar sus nombres.'],
   [/Filas inválidas|comilla/, 'Corrija esas filas en el archivo original y vuelva a cargarlo.'],
   [/vacía|vacío|no tiene filas/, 'Revise que sea el archivo correcto y que el filtro de diagnóstico sea el del estudio.'],
@@ -81,15 +83,26 @@ async function cargar(entrada) {
   const archivo = entrada.files[0];
   if (!archivo) return;
   if (!await sePuedeDescartar('cargar otro archivo')) { entrada.value = ''; return; }
-  trabajar('Leyendo y validando el archivo…', async () => {
-    let texto;
-    try { texto = new TextDecoder('utf-8', { fatal: true }).decode(await archivo.arrayBuffer()); }
-    catch { throw new Error('El archivo no se pudo leer como UTF-8.'); }
-    const datos = leer(texto); // si falla, se conserva lo anterior
-    S = { ...inicial(), datos, archivo: archivo.name };
+  trabajar('La IA está leyendo y reconociendo las columnas…', async () => {
+    const bytes = await archivo.arrayBuffer();
+    let texto, codificacion = 'UTF-8';
+    try { texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch { texto = new TextDecoder('windows-1252').decode(bytes); codificacion = 'Windows-1252'; }
+    const analisis = analizar(texto.replace(/^\uFEFF/, '')); // si falla, se conserva lo anterior
+    S = { ...inicial(), archivo: archivo.name, revision: { analisis, decisiones: decisionesIniciales(analisis), codificacion } };
     Object.assign(pta, ptaInicial());
-    anunciar(`Archivo válido: ${num(datos.filas.length)} filas. Siguiente: extraer la cohorte.`);
-  });
+    anunciar(`La IA propuso qué es cada una de las ${analisis.columnas.length} columnas. Revise y confirme.`);
+  }, 'datos');
+}
+
+function confirmarEstandarizacion() {
+  trabajar('Estandarizando los datos…', () => {
+    const res = estandarizar(S.revision.analisis, S.revision.decisiones);
+    if (!res.datos) throw new Error(res.problemas.join(' '));
+    S.datos = res.datos;
+    S.revision = null;
+    anunciar(`Datos estandarizados: ${num(res.datos.filas.length)} atenciones. Siguiente: extraer la cohorte.`);
+  }, 'datos');
 }
 
 async function empezarDeNuevo() {
@@ -142,11 +155,19 @@ function filtroCIE10() {
 function panelDatos() {
   const c = S.cohorte, d = S.datos;
   return [
-    h('label', { className: 'archivo' }, d ? 'Cambiar archivo (CSV)' : 'Elija el archivo CSV de atenciones',
-      h('input', { type: 'file', id: 'archivo', accept: '.csv', onchange: e => cargar(e.target) })),
+    h('label', { className: 'archivo' }, d || S.revision ? 'Cambiar archivo' : 'Elija el archivo de atenciones (CSV, TSV o texto delimitado)',
+      h('input', { type: 'file', id: 'archivo', accept: '.csv,.tsv,.txt', onchange: e => cargar(e.target) })),
     h('p', { className: 'nota' }, 'El archivo se procesa en este equipo; la aplicación no lo envía a ningún servidor.'),
-    d && aviso('ok', `«${S.archivo}» es válido: ${num(d.filas.length)} atenciones de ${num(d.personas)} personas.`),
+    S.revision && panelRevision(S.revision, pintar, confirmarEstandarizacion),
+    d && aviso('ok', `«${S.archivo}» quedó estandarizado: ${num(d.filas.length)} atenciones de ${num(d.personas)} personas.`),
     d && d.avisos.map(a => h('p', { className: 'nota' }, 'Nota: ' + a)),
+    d && detalle('estandarizacion', 'Ver cómo se estandarizó el archivo',
+      tabla(['Columna de origen', 'Se tomó como', 'Quién decidió'],
+        d.estandarizacion.asignaciones.map(x => [x.columna_original, x.campo === 'desconocida' ? 'se elimina' : x.campo, x.decidio])),
+      d.estandarizacion.cambios_de_formato.length
+        ? tabla(['Campo', 'Formato aplicado', 'Valores cambiados'], d.estandarizacion.cambios_de_formato.map(x => [x.campo, x.regla, num(x.modificados)]))
+        : h('p', {}, 'No fue necesario cambiar ningún valor.'),
+      d.estandarizacion.derivados.map(x => h('p', {}, `Se calculó «${x.campo}» desde: ${x.desde}.`))),
     d && filtroCIE10(),
     d && !c && boton('Extraer las personas del estudio', () => trabajar('Extrayendo la cohorte y midiendo el riesgo inicial…', () => {
       const cohorte = extraerCohorte(S.datos.filas, S.filtro);
@@ -208,6 +229,7 @@ function elegirModo(tipo) {
 function anonimizar() {
   trabajar('Protegiendo los datos y midiendo el resultado…', () => {
     S.r = ejecutar(S.cohorte, S.config, S.datos.nombreOriginal);
+    S.r.estandarizacion = S.datos.estandarizacion;
     S.historial[S.config.tipo] = S.r;
     S.desactualizado = false;
     S.deshacer = null;
@@ -456,7 +478,7 @@ const bloqueo = (mensaje, destino) => h('div', { className: 'vacio' }, h('p', {}
 
 const SECCIONES = [
   ['datos', '1. Datos', 'Cargue el archivo y seleccione a las personas del estudio.', panelDatos,
-    () => (S.cohorte ? ['ok', 'Listo'] : S.datos ? ['aviso', 'Falta extraer'] : ['neutro', 'Por hacer'])],
+    () => (S.cohorte ? ['ok', 'Listo'] : S.datos ? ['aviso', 'Falta extraer'] : S.revision ? ['aviso', 'Revisar columnas'] : ['neutro', 'Por hacer'])],
   ['proteccion', '2. Protección', 'Decida cómo ocultar la identidad de las personas.', panelProteccion,
     () => (S.r ? ['ok', 'Listo'] : !S.cohorte ? ['neutro', 'Bloqueado'] : S.desactualizado ? ['aviso', 'Volver a medir'] : ['aviso', 'Por hacer'])],
   ['resultados', '3. Resultados', '¿Se puede reconocer a alguien? ¿Los datos siguen siendo útiles?', panelResultados,
@@ -468,6 +490,7 @@ const SECCIONES = [
 ];
 
 function siguientePaso() {
+  if (S.revision) return ['Revise lo que propuso la IA y confirme.', 'datos'];
   if (!S.datos) return ['Elija el archivo CSV.', 'datos'];
   if (!S.cohorte) return ['Extraiga las personas del estudio.', 'datos'];
   if (!S.r) return ['Proteja los datos y mida el resultado.', 'proteccion'];
@@ -487,7 +510,7 @@ function pintarNavegacion() {
       h('span', {}, titulo), etiqueta(...estado())))));
   $('siguiente').replaceChildren(h('span', {}, h('strong', {}, 'Siguiente paso: '), texto),
     boton('Ir', () => irA(destino), { 'aria-label': 'Ir al siguiente paso' }));
-  $('reiniciar').disabled = !S.datos;
+  $('reiniciar').disabled = !S.datos && !S.revision;
 }
 
 function pintar() {
@@ -514,6 +537,6 @@ globalThis.addEventListener?.('keydown', e => {
   if (e.altKey && seccion) { e.preventDefault(); irA(seccion[0]); }
 });
 // Evita perder el trabajo al recargar o cerrar por accidente.
-globalThis.addEventListener?.('beforeunload', e => { if (S.datos) { e.preventDefault(); e.returnValue = ''; } });
+globalThis.addEventListener?.('beforeunload', e => { if (S.datos || S.revision) { e.preventDefault(); e.returnValue = ''; } });
 
 pintar();

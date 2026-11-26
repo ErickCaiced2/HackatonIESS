@@ -31,6 +31,7 @@ export async function trazabilidadJSON(r, huellaCSV, huellaConfig, acuerdoEn = n
       personas_antes: o.personasAntes, personas_despues: o.personasDespues,
       atenciones_antes: o.atencionesAntes, atenciones_despues: o.atencionesDespues,
     })),
+    estandarizacion_previa: r.estandarizacion ?? null,
     columnas: r.traza,
     verificaciones: r.verificaciones,
   }, null, 2);
@@ -88,6 +89,7 @@ ${tabla(['Campo', 'Valor'], [
     ['Ejecución', r.id]])}
 <h2>2. Minimización</h2>
 <p>Cohorte: atenciones del capítulo F de personas de 18 años o más, entre 2023 y 2025. Se entregan: ${esc(r.columnas.join(', '))}. El resto se elimina porque el estudio no lo pide; la cédula solo sirve para unir las atenciones.</p>
+${r.estandarizacion ? `<p>Antes de anonimizar, el archivo de origen (${r.estandarizacion.columnas_de_entrada} columnas) se estandarizó: un modelo local (${esc(r.estandarizacion.modelo)}), entrenado con datos inventados, propuso qué es cada columna y una persona lo confirmó. El detalle está en el informe de trazabilidad.</p>` : ''}
 <h2>3. Clasificación y técnicas por variable</h2>
 ${tabla(['Variable', 'Clasificación', 'Técnica', 'Parámetro', 'Justificación', 'Celdas modificadas'],
     r.traza.map(t => [t.variable, t.clasificacion, t.tecnica, t.parametro || '—', t.justificacion, t.valores_modificados]))}

@@ -1,5 +1,5 @@
 // CSV separado por comas, con comillas (RFC 4180). Todo se lee como texto.
-export function parsearCSV(texto) {
+export function parsearCSV(texto, separador = ',') {
   const filas = [];
   let fila = [], campo = '', enComillas = false;
   const t = texto.replace(/^﻿/, '');
@@ -10,7 +10,7 @@ export function parsearCSV(texto) {
       else if (t[i + 1] === '"') { campo += '"'; i++; }
       else enComillas = false;
     } else if (c === '"' && campo === '') enComillas = true;
-    else if (c === ',') { fila.push(campo); campo = ''; }
+    else if (c === separador) { fila.push(campo); campo = ''; }
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && t[i + 1] === '\n') i++;
       fila.push(campo); filas.push(fila); fila = []; campo = '';

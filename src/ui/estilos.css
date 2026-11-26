@@ -90,3 +90,11 @@ dd { margin: 0 0 8px; }
   nav { position: static; max-height: none; }
 }
 @media print { nav, #siguiente, header .acciones { display: none; } .disposicion { display: block; } }
+
+.revision { border: 2px solid var(--azul); border-radius: 8px; padding: 4px 14px; margin: 12px 0; }
+.pregunta { border: 2px solid var(--av); background: #fffaea; }
+.revision select { min-width: 170px; }
+
+.revision { border: 2px solid var(--azul); border-radius: 8px; padding: 4px 14px; margin: 12px 0; }
+.pregunta { border: 2px solid var(--av); background: #fffaea; }
+.revision select { min-width: 170px; }

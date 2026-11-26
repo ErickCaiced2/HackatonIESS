@@ -234,7 +234,10 @@ function transformar(cohorte, config) {
     const orden = x => `${x.fecha_ingreso}|${x.id_atencion}`;
     if (!previa || orden(f) < orden(previa)) primera.set(f.cedula, f);
   }
-  const sinRegion = new Set(cohorte.filter(f => !REGIONES[f.provincia]).map(f => f.provincia));
+  if (config.ubicacion === 'provincia' && cohorte.some(f => f.provincia === undefined)) {
+    throw new Error('El archivo solo trae región: elija Región como ubicación (provincia no está disponible).');
+  }
+  const sinRegion = new Set(cohorte.filter(f => !(f.region ?? REGIONES[f.provincia])).map(f => f.provincia));
   // Una provincia no es un identificador directo, pero no se repite el valor por si la celda está mal.
   if (sinRegion.size) throw new Error(`Hay ${sinRegion.size} valor(es) de provincia sin región. Revise la columna provincia.`);
 
@@ -244,7 +247,7 @@ function transformar(cohorte, config) {
     _p: internas.get(f.cedula),
     grupo_edad: grupoEdad(Number(primera.get(f.cedula).edad), config.anchoEdad),
     sexo: f.sexo,
-    [columnaUbicacion(config)]: config.ubicacion === 'region' ? REGIONES[f.provincia] : f.provincia,
+    [columnaUbicacion(config)]: config.ubicacion === 'region' ? f.region ?? REGIONES[f.provincia] : f.provincia,
     [columnaFecha(config)]: f.fecha_ingreso.slice(0, config.fecha === 'mes' ? 7 : 4),
     tipo_atencion: f.tipo_atencion,
     diagnostico_cie10: f.diagnostico_cie10,
@@ -298,6 +301,19 @@ function codificar(filas, columnas) {
 
 function trazarColumnas(cohorte, transformadas, config, nombreOriginal) {
   return plan(config).map(c => {
+    if (cohorte[0][c.nombre] === undefined) {
+      const soloRegion = c.nombre === 'provincia' && cohorte[0].region !== undefined;
+      return {
+        columna_entrada: soloRegion ? nombreOriginal?.region ?? 'region' : 'no venía en el archivo',
+        variable: c.nombre, clasificacion: c.clasificacion, categoria_especial: c.categoria || 'Ninguna',
+        solicitada: c.solicitada, tecnica: soloRegion ? 'Conservar' : c.tecnica,
+        parametro: soloRegion ? 'Se recibió la región ya agrupada' : c.parametro,
+        columna_salida: c.salida ?? 'no sale', justificacion: c.justificacion,
+        valores_modificados: 0, distintos_antes: 0,
+        distintos_despues: soloRegion ? distintos(transformadas.map(f => f.region)) : 0,
+        estado: soloRegion ? 'Aplicada' : 'No venía en el archivo',
+      };
+    }
     const antes = cohorte.map(f => f[c.nombre]);
     // El código conserva una correspondencia uno a uno durante el proceso.
     const despues = !c.salida ? []
