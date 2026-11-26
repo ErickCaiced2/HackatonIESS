@@ -115,3 +115,4 @@ dd { margin: 0 0 8px; }
   .adaptable td:last-child { border-bottom: 0; }
   .adaptable td::before { content: attr(data-etiqueta); font-weight: 600; color: var(--suave); }
 }
+fieldset.periodo .fila { margin: 4px 0; }

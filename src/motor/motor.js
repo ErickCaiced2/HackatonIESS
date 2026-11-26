@@ -1,7 +1,7 @@
 // Motor sin interfaz: carga, cohorte, anonimización, medición y trazabilidad.
 import { COLUMNAS, ALIAS, IDENTIFICADORES, CUASIIDENTIFICADORES, REGIONES, VERSION } from './config.js';
 import { parsearCSV } from './csv.js';
-import { FILTRO_ESTUDIO, coincide, esDelEstudio, etiquetaFiltro } from './cie10.js';
+import { FILTRO_ESTUDIO, coincide, esDelEstudio, etiquetaFiltro, enPeriodo, etiquetaPeriodo, validarPeriodo } from './cie10.js';
 
 const distintos = arr => new Set(arr).size;
 const personas = (filas, id) => distintos(filas.map(f => f[id]));
@@ -47,17 +47,20 @@ export function leer(texto) {
 
 // Cuántas personas daría cada filtro, con las mismas reglas de edad y periodo de la cohorte.
 export function contadorPorFiltro(filas) {
-  const porCodigo = new Map();
+  const porCodigo = new Map(); // código de 3 caracteres -> fecha_ingreso -> personas
   for (const f of filas) {
-    if (Number(f.edad) < 18 || f.fecha_ingreso < '2023-01-01' || f.fecha_ingreso > '2025-12-31') continue;
+    if (Number(f.edad) < 18) continue;
     const codigo = f.diagnostico_cie10.slice(0, 3);
-    if (!porCodigo.has(codigo)) porCodigo.set(codigo, new Set());
-    porCodigo.get(codigo).add(f.cedula);
+    if (!porCodigo.has(codigo)) porCodigo.set(codigo, new Map());
+    const porFecha = porCodigo.get(codigo);
+    if (!porFecha.has(f.fecha_ingreso)) porFecha.set(f.fecha_ingreso, new Set());
+    porFecha.get(f.fecha_ingreso).add(f.cedula);
   }
   const contar = filtro => {
     const personasFiltro = new Set();
-    for (const [codigo, ids] of porCodigo) {
-      if (coincide(codigo, filtro)) for (const id of ids) personasFiltro.add(id);
+    for (const [codigo, porFecha] of porCodigo) {
+      if (!coincide(codigo, filtro)) continue;
+      for (const [fecha, ids] of porFecha) if (enPeriodo(fecha, filtro)) for (const id of ids) personasFiltro.add(id);
     }
     return personasFiltro.size;
   };
@@ -67,17 +70,19 @@ export function contadorPorFiltro(filas) {
 }
 
 export function extraerCohorte(filas, filtro = FILTRO_ESTUDIO) {
+  const errorPeriodo = validarPeriodo(filtro);
+  if (errorPeriodo) throw new Error(errorPeriodo);
   const excluidas = { diagnostico: 0, menor: 0, periodo: 0 };
   const cohorte = filas.filter(f => {
     if (!coincide(f.diagnostico_cie10, filtro)) excluidas.diagnostico++;
     else if (Number(f.edad) < 18) excluidas.menor++;
-    else if (f.fecha_ingreso < '2023-01-01' || f.fecha_ingreso > '2025-12-31') excluidas.periodo++;
+    else if (!enPeriodo(f.fecha_ingreso, filtro)) excluidas.periodo++;
     else return true;
     return false;
   });
   return {
     filas: cohorte, excluidas, entrada: filas.length,
-    filtro: { ...filtro }, etiquetaFiltro: etiquetaFiltro(filtro), esEstudio: esDelEstudio(filtro),
+    filtro: { ...filtro }, etiquetaFiltro: etiquetaFiltro(filtro), periodo: etiquetaPeriodo(filtro), esEstudio: esDelEstudio(filtro),
     personas: personas(cohorte, 'cedula'), atenciones: cohorte.length,
   };
 }
@@ -385,10 +390,10 @@ export function ejecutar(cohorte, config, nombreOriginal) {
     consulta: consultaEstudio(cohorte.filas, salida),
     conservadas: 100 * despues.personas / cohorte.personas,
     cohorte: { entrada: cohorte.entrada, excluidas: cohorte.excluidas, filtro: cohorte.filtro,
-      etiquetaFiltro: cohorte.etiquetaFiltro, esEstudio: cohorte.esEstudio, personas: cohorte.personas, atenciones: cohorte.atenciones },
+      etiquetaFiltro: cohorte.etiquetaFiltro, periodo: cohorte.periodo, esEstudio: cohorte.esEstudio, personas: cohorte.personas, atenciones: cohorte.atenciones },
     traza,
     recorrido: [
-      paso('Cohorte', `${cohorte.etiquetaFiltro}, 18 años o más, 2023-2025`, null, cohorte.personas, cohorte.entrada, cohorte.atenciones),
+      paso('Cohorte', `${cohorte.etiquetaFiltro}, 18 años o más, ${cohorte.periodo}`, null, cohorte.personas, cohorte.entrada, cohorte.atenciones),
       ...recorrido,
     ],
     verificaciones,
