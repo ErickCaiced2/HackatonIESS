@@ -14,6 +14,7 @@ export function entradaDeEjecucion(r, { archivo = '', solicitadoEn = r.fecha } =
     archivo,
     configuracion: r.config.tipo,
     destinatario: r.destinatario ? { tipo: r.destinatario.tipo, id: r.destinatario.id } : null,
+    peticionEn: r.peticionEn ?? null,
     periodo: r.cohorte.periodo ?? '',
     solicitadoEn,
     elaboradoEn: r.fecha,
@@ -113,6 +114,16 @@ export function crearRegistro(almacen = globalThis.localStorage) {
     agregar(entrada) {
       if (lista().some(e => e.id === entrada.id)) return false; // una ejecución registrada no se reemplaza
       guardar([entrada, ...lista()]);
+      return true;
+    },
+    // La petición (a quién va dirigida) se registra una sola vez por ejecución.
+    peticion(id, destinatario, fecha = new Date().toISOString()) {
+      const l = lista();
+      const e = l.find(x => x.id === id);
+      if (!e || e.destinatario) return false;
+      e.destinatario = { tipo: destinatario.tipo, id: destinatario.id };
+      e.peticionEn = fecha;
+      guardar(l);
       return true;
     },
     descarga(id, archivo, fecha = new Date().toISOString(), entregadoA = null) {
