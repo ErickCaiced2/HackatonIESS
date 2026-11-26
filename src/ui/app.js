@@ -1,6 +1,6 @@
 // Panel en una sola vista. Los datos viven solo en memoria.
 import { REFERENCIA, PROPIA } from '../motor/config.js';
-import { leer, extraerCohorte, medir, ejecutar, plan, validarConfig } from '../motor/motor.js';
+import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, plan, validarConfig } from '../motor/motor.js';
 import { aCSV } from '../motor/csv.js';
 import { zip } from '../motor/zip.js';
 import { CAPITULOS, BLOQUES_F, CATEGORIAS_F, FILTRO_ESTUDIO, esDelEstudio, nombreCIE10 } from '../motor/cie10.js';
@@ -112,22 +112,30 @@ function filtroCIE10() {
   const f = S.filtro;
   const selector = (texto, id, valor, opciones, alCambiar, desactivado) => h('label', {}, texto,
     h('select', { id, disabled: desactivado, onchange: e => alCambiar(e.target.value) },
-      opciones.map(([v, t]) => h('option', { value: v, selected: v === valor }, t))));
+      opciones.map(([v, t, n]) => h('option', { value: v, selected: v === valor, disabled: n === 0 && v !== valor },
+        `${t} — ${n ? num(n) + ' personas' : 'sin datos'}`))));
   const esF = f.capitulo === 'V';
+  // Se calcula una vez por archivo; las opciones sin datos no se pueden elegir.
+  S.contar ??= contadorPorFiltro(S.datos.filas);
+  const con = (t, v, filtro) => [v, t, S.contar(filtro)];
   const grupo = BLOQUES_F.find(x => x.id === f.bloque);
   const categorias = Object.entries(CATEGORIAS_F)
     .filter(([c]) => !grupo || (c >= grupo.desde && c <= grupo.hasta));
   return detalle('filtro', `Filtro de diagnóstico: ${esDelEstudio(f) ? 'el que pide el estudio (salud mental)' : 'personalizado (solo exploración)'}`,
     h('p', {}, 'CIE-10 es el catálogo internacional de enfermedades. El estudio pide todo el capítulo V (códigos que empiezan con F). Para entregar, no lo cambie.'),
     h('div', { className: 'fila' },
-      selector('Capítulo', 'f-capitulo', f.capitulo, CAPITULOS.map(c => [c.id, `${c.id} · ${c.desde}-${c.hasta} · ${c.nombre}`]),
+      selector('Capítulo', 'f-capitulo', f.capitulo,
+        CAPITULOS.map(c => con(`${c.id} · ${c.desde}-${c.hasta} · ${c.nombre}`, c.id, { capitulo: c.id, bloque: '', categoria: '' })),
         v => cambiarFiltro({ capitulo: v, bloque: '', categoria: '' })),
-      selector('Grupo de salud mental', 'f-grupo', f.bloque,
-        [['', 'Todos'], ...BLOQUES_F.map(b => [b.id, `${b.id} · ${b.nombre}`])],
-        v => cambiarFiltro({ ...f, bloque: v, categoria: '' }), !esF),
-      selector('Categoría de salud mental', 'f-categoria', f.categoria,
-        [['', 'Todas'], ...categorias.map(([c, n]) => [c, `${c} · ${n}`])],
-        v => cambiarFiltro({ ...f, categoria: v }), !esF)),
+      esF && selector('Grupo de salud mental', 'f-grupo', f.bloque,
+        [con('Todos', '', { ...FILTRO_ESTUDIO }),
+          ...BLOQUES_F.map(b => con(`${b.id} · ${b.nombre}`, b.id, { capitulo: 'V', bloque: b.id, categoria: '' }))],
+        v => cambiarFiltro({ ...f, bloque: v, categoria: '' })),
+      esF && selector('Categoría de salud mental', 'f-categoria', f.categoria,
+        [con('Todas', '', { ...f, categoria: '' }),
+          ...categorias.map(([c, n]) => con(`${c} · ${n}`, c, { ...f, categoria: c }))],
+        v => cambiarFiltro({ ...f, categoria: v }))),
+    h('p', { className: 'nota' }, 'Los conteos ya consideran 18 años o más y atenciones de 2023-2025. «Sin datos» significa que este archivo no tiene casos que cumplan.'),
     !esDelEstudio(f) && boton('Volver al filtro del estudio', () => cambiarFiltro({ ...FILTRO_ESTUDIO })));
 }
 

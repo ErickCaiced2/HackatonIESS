@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { COLUMNAS, REFERENCIA, PROPIA } from '../src/motor/config.js';
 import { aCSV, parsearCSV } from '../src/motor/csv.js';
-import { leer, extraerCohorte, medir, ejecutar, grupoEdad, validarConfig } from '../src/motor/motor.js';
+import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, grupoEdad, validarConfig } from '../src/motor/motor.js';
 import { ptaHTML, trazabilidadJSON, configuracionJSON } from '../src/motor/entregables.js';
 import { sintetico } from './sintetico.js';
 import { nombreCIE10, CATEGORIAS_F, BLOQUES_F } from '../src/motor/cie10.js';
@@ -133,4 +133,14 @@ test('ZIP: firma, número de archivos y contenido', () => {
   assert.deepEqual([...z.slice(0, 4)], [0x50, 0x4b, 3, 4]);
   assert.equal(z[z.length - 12], 2);
   assert.ok(new TextDecoder().decode(z).includes('ñandú'));
+});
+
+test('filtro: el conteo previo coincide con la cohorte y marca las opciones sin datos', () => {
+  const { datos } = preparar();
+  const contar = contadorPorFiltro(datos.filas);
+  for (const [capitulo, bloque, categoria] of [['V', '', ''], ['V', 'F10-F19', ''], ['V', '', 'F20'], ['X', '', ''], ['I', '', '']]) {
+    const filtro = { capitulo, bloque, categoria };
+    assert.equal(contar(filtro), extraerCohorte(datos.filas, filtro).personas);
+  }
+  assert.equal(contar({ capitulo: 'V', bloque: '', categoria: 'F20' }), 0);
 });

@@ -45,6 +45,24 @@ export function leer(texto) {
   return { filas, columnas: nombres, nombreOriginal, avisos, personas: personas(filas, 'cedula') };
 }
 
+// Cuántas personas daría cada filtro, con las mismas reglas de edad y periodo de la cohorte.
+export function contadorPorFiltro(filas) {
+  const porCodigo = new Map();
+  for (const f of filas) {
+    if (Number(f.edad) < 18 || f.fecha_ingreso < '2023-01-01' || f.fecha_ingreso > '2025-12-31') continue;
+    const codigo = f.diagnostico_cie10.slice(0, 3);
+    if (!porCodigo.has(codigo)) porCodigo.set(codigo, new Set());
+    porCodigo.get(codigo).add(f.cedula);
+  }
+  return filtro => {
+    const personasFiltro = new Set();
+    for (const [codigo, ids] of porCodigo) {
+      if (coincide(codigo, filtro)) for (const id of ids) personasFiltro.add(id);
+    }
+    return personasFiltro.size;
+  };
+}
+
 export function extraerCohorte(filas, filtro = FILTRO_ESTUDIO) {
   const excluidas = { diagnostico: 0, menor: 0, periodo: 0 };
   const cohorte = filas.filter(f => {
