@@ -1,0 +1,6 @@
+{
+  "name": "reto2-tus-datos-tus-derechos",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

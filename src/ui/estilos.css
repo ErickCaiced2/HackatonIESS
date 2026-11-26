@@ -1,0 +1,31 @@
+:root { --azul: #0b3d91; --fondo: #f5f7fb; --texto: #16203a; --borde: #c3cbdc; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: var(--fondo); color: var(--texto); }
+header { background: var(--azul); color: #fff; padding: 12px 24px; }
+h1 { margin: 0; font-size: 20px; }
+header p { margin: 4px 0 10px; }
+nav { display: flex; flex-wrap: wrap; gap: 6px; }
+main { max-width: 1150px; margin: 0 auto; padding: 16px 24px 48px; }
+button, select, input, textarea { font: inherit; }
+button { padding: 7px 14px; border: 1px solid var(--azul); border-radius: 6px; background: #fff; color: var(--azul); cursor: pointer; }
+button.principal, button[aria-current="true"], button[aria-pressed="true"] { background: var(--azul); color: #fff; }
+nav button { border-color: #fff; }
+nav button[aria-current="true"] { background: #ffd34d; color: #16203a; border-color: #ffd34d; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+:focus-visible { outline: 3px solid #e08a00; outline-offset: 2px; }
+.tarjeta { background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+.tarjeta h2 { margin: 0 0 8px; font-size: 17px; }
+.desliza { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { border-bottom: 1px solid var(--borde); padding: 6px 8px; text-align: left; vertical-align: top; }
+th { background: #e9eef8; }
+.ok { color: #0d6b32; font-weight: 600; }
+.mal { color: #a4141c; font-weight: 600; }
+.banda { padding: 10px 14px; border-radius: 6px; font-weight: 600; margin-bottom: 14px; border: 2px solid; }
+.banda.ok { background: #e6f5ec; }
+.banda.mal, #error { background: #fdeaea; }
+#error { color: #a4141c; margin: 12px auto 0; max-width: 1100px; padding: 10px 14px; border: 1px solid #a4141c; border-radius: 6px; }
+.fila { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.fila label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+textarea { width: 100%; min-height: 110px; }
+textarea[readonly] { background: #eef0f5; color: var(--texto); resize: vertical; }

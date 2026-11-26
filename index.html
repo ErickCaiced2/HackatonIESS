@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Sin recursos externos. 'unsafe-inline' y ws local son para Live Server. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; form-action 'none'">
+  <title>Prototipo R2 · Tus datos, tus derechos</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="src/ui/estilos.css">
+</head>
+<body>
+  <header>
+    <h1>Tus datos, tus derechos</h1>
+    <p id="estado" role="status"></p>
+    <nav id="pasos" aria-label="Pasos"></nav>
+  </header>
+  <p id="error" role="alert" hidden></p>
+  <main id="contenido"></main>
+  <script type="module" src="src/ui/app.js"></script>
+</body>
+</html>

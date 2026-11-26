@@ -169,7 +169,7 @@ Ejemplo de entrada (los conteos se llenan al ejecutar):
 | 5. Riesgo residual y mitigación | Riesgos, medidas, condiciones de uso y reevaluación anual como mínimo | Equipo; el sistema propone un borrador |
 | 6. Resumen para el titular | Datos usados, finalidad, protección y derechos, en lenguaje claro | Equipo; el sistema propone un borrador |
 
-- Las cifras no se pueden editar a mano. Los textos sí, y el equipo debe revisarlos.
+- Las cifras y los textos base de las secciones 5 y 6 no se editan en pantalla; el equipo los revisa y marca. Solo escribe el supuesto sobre el atacante y el canal de derechos.
 - Se indica el efecto de cada paso de supresión en personas, atenciones, k y grupos homogéneos.
 - Cambiar la configuración invalida el informe y el PTA anteriores.
 - El PTA nunca afirma «riesgo cero».
@@ -281,10 +281,7 @@ Contrato del motor, a fijar antes de repartir el trabajo:
 - `medir(dataset, cohorte) → { personas, atenciones, kMin, pctUnicas, identColumnas, identTexto, pctConservadas, consulta, homogeneos }`
 
 ### Pantallas
-1. **Cargar:** archivo, validación y cohorte.
-2. **Clasificar y configurar:** tabla de 28 variables y parámetros.
-3. **Resultados:** antes y después, consulta, alertas y estado APTO / NO APTO. Es la pantalla que lee el jurado.
-4. **Entregar:** CSV, configuración y PTA.
+Cinco: Cargar, Configurar, Resultados, Trazabilidad y Entregar. El detalle está en [PANTALLAS.md](PANTALLAS.md).
 
 ## 8. Riesgos
 | Riesgo | Mitigación |
@@ -340,7 +337,7 @@ RF-18 es compartido: A registra las transformaciones, B comprueba los conteos y 
 |---|---|---|
 | Utilidad para el ciudadano | 25 | Protección del titular y resumen en lenguaje claro |
 | Innovación y funcionamiento | 20 | Testigo en vivo, l-diversidad, PTA automático |
-| Facilidad de uso y accesibilidad | 15 | Flujo de 4 pantallas y prueba de usabilidad |
+| Facilidad de uso y accesibilidad | 15 | Flujo guiado de 5 pantallas y prueba de usabilidad |
 | Privacidad (DevPrivOps) | 15 | Minimización, k, riesgo residual |
 | Seguridad (DevSecOps) | 10 | Proceso local, RNF-01 a 05 y pruebas |
 | Gestión de riesgos (DevRiskOps) | 10 | Matriz, bloqueo y alertas |
