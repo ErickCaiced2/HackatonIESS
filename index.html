@@ -10,13 +10,60 @@
   <link rel="stylesheet" href="src/ui/estilos.css">
 </head>
 <body>
+  <a class="saltar" href="#contenido">Saltar al contenido</a>
   <header>
-    <h1>Tus datos, tus derechos</h1>
-    <p id="estado" role="status"></p>
-    <nav id="pasos" aria-label="Pasos"></nav>
+    <div>
+      <h1>Tus datos, tus derechos</h1>
+      <p>Proteja datos de salud antes de compartirlos con un investigador.</p>
+    </div>
+    <div class="acciones">
+      <button type="button" id="ayuda-abrir">? Ayuda y glosario</button>
+      <button type="button" id="reiniciar">Empezar de nuevo</button>
+    </div>
   </header>
-  <p id="error" role="alert" hidden></p>
-  <main id="contenido"></main>
+
+  <div class="disposicion">
+    <nav aria-label="Secciones del panel">
+      <div id="progreso"></div>
+      <ul id="menu"></ul>
+      <p class="nota">Atajos: Alt + 1 a 5</p>
+    </nav>
+    <div class="principal-columna">
+      <div id="siguiente"></div>
+      <div id="ocupado" role="status" hidden></div>
+      <div id="error" role="alert" hidden></div>
+      <p id="anuncio" class="solo-lector" aria-live="polite"></p>
+      <main id="contenido" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <dialog id="dialogo" aria-label="Confirmación"></dialog>
+
+  <dialog id="ayuda" aria-labelledby="ayuda-titulo">
+    <h2 id="ayuda-titulo">Ayuda</h2>
+    <h3>Cómo usar el panel</h3>
+    <ol>
+      <li>Cargue el CSV y extraiga las personas del estudio.</li>
+      <li>Elija cómo proteger: Referencia (verificación) o Propia (entrega).</li>
+      <li>Revise si es APTO y cuánta utilidad se conservó.</li>
+      <li>Compruebe en Trazabilidad qué se hizo.</li>
+      <li>Revise los textos y descargue.</li>
+    </ol>
+    <h3>Glosario</h3>
+    <dl>
+      <dt>Cohorte</dt><dd>Las personas que pide el estudio.</dd>
+      <dt>Cuasiidentificador</dt><dd>Dato que solo no identifica, pero combinado con otros sí (edad, sexo, región).</dd>
+      <dt>k</dt><dd>Número de personas distintas en el grupo más pequeño que comparte esos datos. La meta es 5 o más.</dd>
+      <dt>Persona única</dt><dd>Nadie más comparte su combinación: se puede distinguir.</dd>
+      <dt>Diversidad (l)</dt><dd>Cuántos diagnósticos distintos debe tener cada grupo.</dd>
+      <dt>Suprimir</dt><dd>Quitar una columna, o a las personas que quedan en grupos demasiado pequeños.</dd>
+      <dt>Utilidad</dt><dd>Cuánto siguen sirviendo los datos para el estudio.</dd>
+      <dt>Anonimizar</dt><dd>Procurar que nadie pueda identificar a la persona sin un esfuerzo desproporcionado. Siempre queda un riesgo.</dd>
+      <dt>PTA</dt><dd>Protocolo Técnico de Anonimización: el informe de lo que se hizo y del riesgo.</dd>
+    </dl>
+    <button type="button" id="ayuda-cerrar" class="principal">Cerrar</button>
+  </dialog>
+
   <script type="module" src="src/ui/app.js"></script>
 </body>
 </html>

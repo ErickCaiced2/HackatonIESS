@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 1330" width="1100" height="1330" font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#16203a" role="img" aria-label="Diagrama de flujo de la medición de riesgo k y utilidad">
+<defs><marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#44536f"/></marker></defs>
+<rect width="1100" height="1330" fill="#ffffff"/>
+<text x="550" y="38" text-anchor="middle" font-size="23" font-weight="700" fill="#0b3d91">Cómo se miden el riesgo (k) y la utilidad</text>
+
+<g fill="none" stroke="#44536f" stroke-width="2" marker-end="url(#f)">
+<path d="M450 118V148"/><path d="M450 268V298"/><path d="M450 382V412"/><path d="M450 508V538"/>
+<path d="M450 658V718"/><path d="M450 838V878"/>
+<path d="M590 598H770"/><path d="M590 778H770"/>
+<path d="M1030 598H1060V460H682"/>
+<path d="M900 810V850H1080V440H682"/>
+<path d="M450 946V975H270V1000"/><path d="M450 946V975H820V1000"/>
+<path d="M270 1170V1210"/>
+</g>
+
+<g stroke-width="2">
+<rect x="220" y="58" width="460" height="60" rx="8" fill="#e9eef8" stroke="#0b3d91"/>
+<rect x="150" y="150" width="600" height="118" rx="8" fill="#fdeaea" stroke="#a4141c"/>
+<rect x="220" y="300" width="460" height="82" rx="8" fill="#e9eef8" stroke="#0b3d91"/>
+<rect x="220" y="414" width="460" height="94" rx="8" fill="#e9eef8" stroke="#0b3d91"/>
+<path d="M450 538L590 598L450 658L310 598Z" fill="#fff4cc" stroke="#9a6b00"/>
+<path d="M450 718L590 778L450 838L310 778Z" fill="#fff4cc" stroke="#9a6b00"/>
+<rect x="772" y="560" width="258" height="76" rx="8" fill="#fdeaea" stroke="#a4141c"/>
+<rect x="772" y="746" width="258" height="64" rx="8" fill="#fdeaea" stroke="#a4141c"/>
+<rect x="220" y="880" width="460" height="66" rx="8" fill="#e9eef8" stroke="#0b3d91"/>
+<rect x="50" y="1002" width="440" height="168" rx="8" fill="#fdeaea" stroke="#a4141c"/>
+<rect x="580" y="1002" width="480" height="200" rx="8" fill="#e6f5ec" stroke="#0d6b32"/>
+<rect x="50" y="1212" width="440" height="82" rx="8" fill="#fff4cc" stroke="#9a6b00"/>
+</g>
+
+<g text-anchor="middle">
+<text x="450" y="83" font-weight="700">Cohorte original</text>
+<text x="450" y="105">CIE-10 F · 18 años o más · 2023-2025</text>
+
+<text x="450" y="175" font-weight="700">1. Medir ANTES (persona = cédula)</text>
+<text x="450" y="199">Agrupar por: fecha_nacimiento, edad, sexo, etnia,</text>
+<text x="450" y="219">provincia, canton, establecimiento_id</text>
+<text x="450" y="239">k · personas únicas · identificadores · grupos homogéneos</text>
+<text x="450" y="259">También se cuentan las personas por región y sexo</text>
+
+<text x="450" y="325" font-weight="700">2. Transformar y minimizar</text>
+<text x="450" y="347">Grupo de edad (primera atención) · región · año y mes</text>
+<text x="450" y="369">Eliminar columnas no pedidas e identificadores</text>
+
+<text x="450" y="439" font-weight="700">3. Calcular k por persona</text>
+<text x="450" y="461">Agrupar por grupo_edad + sexo + región</text>
+<text x="450" y="481">Contar personas DISTINTAS en cada grupo</text>
+<text x="450" y="501">Si está en varios grupos, tomar el menor</text>
+
+<text x="450" y="594" font-weight="700">¿Alguien tiene</text><text x="450" y="616" font-weight="700">k &lt; meta (≥ 5)?</text>
+<text x="450" y="773" font-weight="700">¿l ≥ 2 y un grupo</text><text x="450" y="795" font-weight="700">tiene &lt; l diagnósticos?</text>
+
+<text x="901" y="586" font-weight="700">Suprimir por k</text>
+<text x="901" y="606">Todas las filas de esas</text><text x="901" y="625">personas</text>
+<text x="901" y="772" font-weight="700">Suprimir por diversidad</text><text x="901" y="795">Todas sus filas</text>
+
+<text x="450" y="907" font-weight="700">4. Dataset de salida</text>
+<text x="450" y="930">Código aleatorio por persona, sin guardar correspondencia</text>
+
+<text x="270" y="1028" font-weight="700">5A. Medir riesgo DESPUÉS</text>
+<text x="270" y="1056">k mínimo = menor k por persona</text>
+<text x="270" y="1080">Únicas = personas con k = 1 ÷ total</text>
+<text x="270" y="1104">Identificadores en columnas y en texto</text>
+<text x="270" y="1128">Grupos homogéneos: k ≥ meta y un solo</text>
+<text x="270" y="1150">diagnóstico (3 primeros caracteres)</text>
+
+<text x="820" y="1028" font-weight="700">5B. Medir UTILIDAD (cohorte vs. salida)</text>
+<text x="820" y="1056">Conservadas = personas de salida ÷ cohorte</text>
+<text x="820" y="1084">Por cada celda región · sexo de la cohorte:</text>
+<text x="820" y="1108">|antes − después| ÷ antes × 100</text>
+<text x="820" y="1136">Celda desaparecida = 100 %</text>
+<text x="820" y="1162">Informar máximo y promedio simple de las celdas</text>
+<text x="820" y="1188" font-size="13">La utilidad se informa; no decide APTO</text>
+
+<text x="270" y="1236" font-weight="700">APTO / NO APTO (8 verificaciones)</text>
+<text x="270" y="1258" font-size="14">k ≥ meta · 0 identificadores · salida no vacía · trazabilidad</text>
+<text x="270" y="1280" font-size="14">Con l ≥ 2: 0 grupos homogéneos</text>
+</g>
+
+<g font-weight="700">
+<text x="620" y="590" fill="#a4141c">Sí</text><text x="620" y="770" fill="#a4141c">Sí</text>
+<text x="462" y="692" fill="#0d6b32">No</text><text x="462" y="864" fill="#0d6b32">No (o l = 1)</text>
+<text x="710" y="432" font-size="13">Volver a calcular k</text>
+</g>
+
+<text x="550" y="1318" text-anchor="middle" font-size="13" fill="#a4141c">Límite: la k del reto no incluye año-mes, tipo de atención, diagnóstico ni estancia. APTO no significa riesgo cero.</text>
+</svg>
