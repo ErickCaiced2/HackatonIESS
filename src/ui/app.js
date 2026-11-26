@@ -538,7 +538,7 @@ function pintarNavegacion() {
 
 // ---------- Tablero (página principal) ----------
 const fechaHora = iso => (iso ? new Date(iso).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'medium' }) : '—');
-const enLinea = objeto => Object.entries(objeto).map(([k, n]) => `${k}: ${n}`).join(' · ') || '—';
+const fechaCorta = iso => (iso ? new Date(iso).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
 function verVista(nueva) {
   if (nueva === 'tablero' && vista !== 'tablero') pintarTablero(); // las descargas no repintan todo
@@ -550,32 +550,61 @@ function verVista(nueva) {
   }
 }
 
-async function borrarRegistro() {
-  if (!await confirmar('Borrar el registro', 'Se borra el historial de ejecuciones y descargas de este navegador. Los archivos ya descargados no cambian.', 'Borrar registro')) return;
-  registro.borrar();
-  pintar();
-  notificar('ok', 'Se borró el registro de ejecuciones.');
+function resumenEjecucion(e) {
+  return tablaAdaptable(['Dato', 'Valor'], [
+    ['Código de ejecución', e.id],
+    ['Petición de anonimización', fechaHora(e.solicitadoEn)],
+    ['Elaboración del dataset', fechaHora(e.elaboradoEn)],
+    ['Archivo de origen', e.archivo || '—'],
+    ['Periodo de atención', e.periodo || '—'],
+    ['Configuración', e.configuracion],
+    ['Medición de riesgo (k)', `Antes: ${e.kAntes} · Después: ${e.kDespues} · Meta: ${e.kMeta} o más`],
+    ['Personas', `Antes: ${num(e.personasAntes)} · Después: ${num(e.personasDespues)}`],
+    ['Anonimizaciones aplicadas', `${e.anonimizaciones} columnas · ${num(e.celdasModificadas)} celdas modificadas`],
+    ['Verificaciones', `${e.verificacionesCorrectas} de ${e.verificacionesTotal} correctas`],
+    ['Estado', etiqueta(e.apto ? 'ok' : 'mal', e.apto ? 'Apto' : 'No apto')],
+  ]);
 }
 
-function detalleEjecucion(e) {
-  return detalle('reg-' + e.id, `Detalle de ${e.id}`,
-    tabla(['Dato', 'Valor'], [
-      ['Petición de anonimización', fechaHora(e.solicitadoEn)],
-      ['Elaboración del dataset', fechaHora(e.elaboradoEn)],
-      ['Archivo de origen', e.archivo || '—'],
-      ['Periodo de atención', e.periodo || '—'],
-      ['Configuración', e.configuracion],
-      ['Medición de riesgo (k)', `Antes: ${e.kAntes} · Después: ${e.kDespues} · Meta: ${e.kMeta} o más`],
-      ['Personas', `${num(e.personasAntes)} → ${num(e.personasDespues)}`],
-      ['Anonimizaciones aplicadas', `${e.anonimizaciones} columnas · ${num(e.celdasModificadas)} celdas modificadas`],
-      ['Técnicas', enLinea(e.tecnicas)],
-      ['Clasificación de columnas', `${e.columnasClasificadas} de ${e.totalColumnas} clasificadas · ${enLinea(e.clasificaciones)}`],
-      ['Verificaciones', `${e.verificacionesCorrectas} de ${e.verificacionesTotal} correctas`],
-    ]),
+// Detalle de una ejecución: qué columnas se anonimizaron, cuáles se conservaron y cómo se clasificó cada una.
+function abrirDetalle(id) {
+  const e = registro.lista().find(x => x.id === id);
+  if (!e) return;
+  const d = $('detalle-ejecucion');
+  const cols = e.columnas ?? [];
+  const anonimizadas = cols.filter(c => c.tecnica !== 'Conservar');
+  const conservadas = cols.filter(c => c.tecnica === 'Conservar');
+  const porClase = {};
+  for (const c of cols) (porClase[c.clasificacion] ??= []).push(c.columna);
+  // replaceChildren no aplana listas: se envuelve todo con h(), que sí lo hace.
+  d.replaceChildren(h('div', { className: 'contenido-dialogo' },
+    h('div', { className: 'cabeza-dialogo' },
+      h('h2', { id: 'detalle-titulo' }, 'Detalle de la ejecución'),
+      boton('Cerrar ×', () => d.close(), { className: 'cerrar-dialogo' })),
+    resumenEjecucion(e),
+    !cols.length
+      ? aviso('aviso', 'Esta ejecución se registró antes de que el registro guardara el detalle por columna.')
+      : [
+        h('h3', {}, `Datos anonimizados: ${anonimizadas.filter(c => c.estado === 'Aplicada').length} columnas con cambios, de ${anonimizadas.length} con técnica de protección`),
+        tablaAdaptable(['Columna', 'Clasificación', 'Categoría especial', 'Técnica', 'Cómo', 'Sale como', 'Celdas modificadas', 'Estado'],
+          anonimizadas.map(c => [c.columna, c.clasificacion, c.categoria, c.tecnica, c.parametro || '—', c.salida,
+            num(c.modificadas), etiqueta(c.estado === 'Aplicada' ? 'ok' : 'neutro', c.estado)])),
+        h('h3', {}, `Datos conservados sin cambios (${conservadas.length} columnas)`),
+        conservadas.length
+          ? tablaAdaptable(['Columna', 'Clasificación', 'Categoría especial', '¿La pide el estudio?', 'Sale como'],
+            conservadas.map(c => [c.columna, c.clasificacion, c.categoria, c.solicitada, c.salida]))
+          : h('p', {}, 'Ninguna columna se conservó sin cambios.'),
+        h('h3', {}, `Clasificación de columnas (${e.columnasClasificadas} de ${e.totalColumnas})`),
+        tablaAdaptable(['Clasificación', 'Columnas', 'Total'],
+          Object.entries(porClase).map(([clase, nombres]) => [clase, nombres.join(', '), nombres.length])),
+      ],
     h('h3', {}, 'Descargas'),
     e.descargas.length
-      ? tabla(['Archivo', 'Fecha de descarga'], e.descargas.map(d => [d.archivo, fechaHora(d.fecha)]))
-      : h('p', {}, 'Este dataset no se ha descargado.'));
+      ? tablaAdaptable(['Archivo', 'Fecha de descarga'], e.descargas.map(x => [x.archivo, fechaHora(x.fecha)]))
+      : h('p', {}, 'Este dataset no se ha descargado.'),
+    h('p', { className: 'nota' }, 'Solo se muestran nombres de columnas, técnicas y conteos; nunca valores de las personas.')));
+  d.showModal();
+  d.scrollTop = 0;
 }
 
 function pintarTablero() {
@@ -595,17 +624,15 @@ function pintarTablero() {
     entradas.length === 0
       ? h('div', { className: 'vacio' }, h('p', {}, 'Todavía no hay ejecuciones registradas. Pulse «Nueva anonimización» para empezar.'))
       : [h('h3', {}, 'Registro'),
-        tabla(['Petición', 'Dataset elaborado', 'Archivo', 'Configuración', 'Riesgo k (antes → después)', 'Anonimizaciones', 'Clasificación', 'Estado', 'Descarga'],
-          entradas.map(e => [fechaHora(e.solicitadoEn), fechaHora(e.elaboradoEn), e.archivo || '—', e.configuracion,
-            etiqueta(e.kDespues >= e.kMeta ? 'ok' : 'mal', `${e.kAntes} → ${e.kDespues} (meta ${e.kMeta})`),
+        tablaAdaptable(['Petición', 'Dataset elaborado', 'Archivo', 'Configuración', { texto: 'Riesgo k', sub: ['Antes', 'Después', 'Meta'] }, 'Anonimizaciones', 'Clasificación', 'Estado', 'Descarga', 'Detalle'],
+          entradas.map(e => [fechaCorta(e.solicitadoEn), fechaCorta(e.elaboradoEn), e.archivo || '—', e.configuracion,
+            e.kAntes, etiqueta(e.kDespues >= e.kMeta ? 'ok' : 'mal', String(e.kDespues)), `≥ ${e.kMeta}`,
             `${e.anonimizaciones} columnas · ${num(e.celdasModificadas)} celdas`,
-            etiqueta(e.columnasClasificadas === e.totalColumnas ? 'ok' : 'aviso', `${e.columnasClasificadas} de ${e.totalColumnas} clasificadas`),
+            etiqueta(e.columnasClasificadas === e.totalColumnas ? 'ok' : 'aviso', `${e.columnasClasificadas} de ${e.totalColumnas}`),
             etiqueta(e.apto ? 'ok' : 'mal', e.apto ? 'Apto' : 'No apto'),
-            ultimaDescarga(e) ? `${fechaHora(ultimaDescarga(e).fecha)} (${e.descargas.length} archivo(s))` : etiqueta('neutro', 'No descargado')])),
-        h('h3', {}, 'Detalle por ejecución'),
-        entradas.map(detalleEjecucion),
-        h('div', { className: 'acciones' }, boton('Borrar registro', borrarRegistro, { className: 'peligro', id: 'borrar-registro' }))],
-    h('p', { className: 'nota' }, 'El registro se guarda solo en este navegador y no contiene datos de personas: solo fechas, conteos y resultados de cada ejecución.')));
+            ultimaDescarga(e) ? `${fechaCorta(ultimaDescarga(e).fecha)} (${e.descargas.length} archivo(s))` : etiqueta('neutro', 'No descargado'),
+            boton('Ver detalle', () => abrirDetalle(e.id), { id: 'detalle-' + e.id, 'aria-haspopup': 'dialog', 'aria-label': `Ver detalle de ${e.id}` })]))],
+    h('p', { className: 'nota' }, 'El registro se guarda solo en este navegador y no contiene datos de personas: solo fechas, conteos, nombres de columnas y resultados de cada ejecución. Por no repudio, la aplicación no permite borrarlo ni modificar ejecuciones registradas.')));
 }
 
 function pintar() {

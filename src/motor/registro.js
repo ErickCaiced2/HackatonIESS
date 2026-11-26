@@ -1,7 +1,7 @@
 // Registro de ejecuciones y descargas para el tablero.
 // Solo guarda metadatos de cada ejecución: nunca filas, cédulas ni valores de celdas.
+// Por no repudio, el registro solo crece: no hay operación para borrar ni editar ejecuciones.
 const CLAVE = 'iess.registro.v1';
-const MAXIMO = 200;
 
 const cuantos = (lista, clave) => lista.reduce((a, x) => ({ ...a, [x[clave]]: (a[x[clave]] ?? 0) + 1 }), {});
 
@@ -27,6 +27,12 @@ export function entradaDeEjecucion(r, { archivo = '', solicitadoEn = r.fecha } =
     columnasClasificadas: clasificadas.length,
     totalColumnas: r.traza.length,
     clasificaciones: cuantos(clasificadas, 'clasificacion'),
+    // Qué se hizo con cada columna: nombres, clasificación y técnica; nunca valores.
+    columnas: r.traza.map(t => ({
+      columna: t.columna_entrada, clasificacion: t.clasificacion, categoria: t.categoria_especial,
+      solicitada: t.solicitada, tecnica: t.tecnica, parametro: t.parametro || '', salida: t.columna_salida,
+      modificadas: t.valores_modificados, estado: t.estado,
+    })),
     verificacionesCorrectas: r.verificaciones.filter(v => v.ok).length,
     verificacionesTotal: r.verificaciones.length,
     apto: r.apto,
@@ -66,12 +72,20 @@ export function crearRegistro(almacen = globalThis.localStorage) {
       return Array.isArray(v) ? v : [];
     } catch { return []; }
   };
-  const guardar = l => destino.setItem(CLAVE, JSON.stringify(l.slice(0, MAXIMO)));
+  // Sin límite: no se descartan ejecuciones antiguas. Si el almacén se llena, falla con un error visible.
+  const guardar = l => {
+    try { destino.setItem(CLAVE, JSON.stringify(l)); }
+    catch { throw new Error('No se pudo guardar el registro de ejecuciones: el almacenamiento del navegador está lleno.'); }
+  };
   return {
     persistente,
     lista,
     // La más reciente primero.
-    agregar(entrada) { guardar([entrada, ...lista().filter(e => e.id !== entrada.id)]); },
+    agregar(entrada) {
+      if (lista().some(e => e.id === entrada.id)) return false; // una ejecución registrada no se reemplaza
+      guardar([entrada, ...lista()]);
+      return true;
+    },
     descarga(id, archivo, fecha = new Date().toISOString()) {
       const l = lista();
       const e = l.find(x => x.id === id);
@@ -80,6 +94,5 @@ export function crearRegistro(almacen = globalThis.localStorage) {
       guardar(l);
       return true;
     },
-    borrar() { destino.removeItem(CLAVE); },
   };
 }

@@ -52,8 +52,22 @@ test('registro: guarda ejecuciones y descargas en el almacén, la más reciente 
   assert.equal(t.aptas, 1);
   assert.equal(t.descargas, 1);
   assert.equal(t.ultimaDescarga.fecha, '2026-02-02T10:00:00.000Z');
-  reg.borrar();
-  assert.equal(reg.lista().length, 0);
+  // No repudio: no existe forma de borrar y una ejecución registrada no se reemplaza.
+  assert.equal('borrar' in reg, false);
+  assert.equal(reg.agregar({ ...a, apto: false }), false);
+  assert.equal(reg.lista().find(e => e.id === 'A').apto, true);
+  assert.equal(reg.lista().length, 2);
+});
+
+test('registro: guarda el detalle por columna (anonimizadas y clasificación) sin valores', () => {
+  const { datos, r } = ejecucion();
+  const e = entradaDeEjecucion(r);
+  assert.equal(e.columnas.length, 28);
+  assert.ok(e.columnas.every(c => c.columna && c.clasificacion && c.tecnica && c.salida));
+  assert.equal(e.columnas.filter(c => c.tecnica !== 'Conservar' && c.estado === 'Aplicada').length, e.anonimizaciones);
+  assert.equal(e.columnas.find(c => c.columna === 'cedula').salida, 'id_paciente_estudio');
+  const texto = JSON.stringify(e.columnas);
+  for (const f of datos.filas.slice(0, 50)) for (const v of [f.cedula, f.nombres, f.telefono]) if (v) assert.ok(!texto.includes(v), v);
 });
 
 test('registro: sin almacén usa memoria y lo indica', () => {
