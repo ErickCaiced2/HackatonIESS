@@ -13,6 +13,7 @@ export function entradaDeEjecucion(r, { archivo = '', solicitadoEn = r.fecha } =
     id: r.id,
     archivo,
     configuracion: r.config.tipo,
+    destinatario: r.destinatario ? { tipo: r.destinatario.tipo, id: r.destinatario.id } : null,
     periodo: r.cohorte.periodo ?? '',
     solicitadoEn,
     elaboradoEn: r.fecha,
@@ -38,6 +39,34 @@ export function entradaDeEjecucion(r, { archivo = '', solicitadoEn = r.fecha } =
     apto: r.apto,
     descargas: [],
   };
+}
+
+// Día local AAAA-MM-DD de una fecha ISO (los filtros del tablero son por día).
+export function diaLocal(iso) {
+  const d = new Date(iso);
+  const dos = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`;
+}
+
+// Filtros del tablero: fechas de petición y de entrega (descarga) y un texto libre.
+export function filtrarRegistro(lista, { peticionDesde = '', peticionHasta = '', entregaDesde = '', entregaHasta = '', texto = '' } = {}) {
+  const enRango = (dia, desde, hasta) => (!desde || dia >= desde) && (!hasta || dia <= hasta);
+  const q = texto.trim().toLowerCase();
+  return lista.filter(e => {
+    if (!enRango(diaLocal(e.solicitadoEn), peticionDesde, peticionHasta)) return false;
+    if ((entregaDesde || entregaHasta) && !e.descargas.some(d => enRango(diaLocal(d.fecha), entregaDesde, entregaHasta))) return false;
+    if (q && ![e.id, e.archivo, e.destinatario?.id, ...e.descargas.map(d => d.entregadoA?.id)]
+      .some(v => String(v ?? '').toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+
+export const TAMANOS_PAGINA = Object.freeze([10, 20, 50, 100]);
+export function paginar(lista, pagina, porPagina = 10) {
+  const total = lista.length, paginas = Math.max(1, Math.ceil(total / porPagina));
+  const actual = Math.min(Math.max(1, pagina), paginas);
+  const inicio = (actual - 1) * porPagina;
+  return { filas: lista.slice(inicio, inicio + porPagina), pagina: actual, paginas, total, desde: total ? inicio + 1 : 0, hasta: Math.min(inicio + porPagina, total) };
 }
 
 // Totales para las tarjetas del tablero.
@@ -86,11 +115,11 @@ export function crearRegistro(almacen = globalThis.localStorage) {
       guardar([entrada, ...lista()]);
       return true;
     },
-    descarga(id, archivo, fecha = new Date().toISOString()) {
+    descarga(id, archivo, fecha = new Date().toISOString(), entregadoA = null) {
       const l = lista();
       const e = l.find(x => x.id === id);
       if (!e) return false;
-      e.descargas.push({ archivo, fecha });
+      e.descargas.push({ archivo, fecha, entregadoA });
       guardar(l);
       return true;
     },
