@@ -172,7 +172,9 @@ export function consultaEstudio(cohorte, salida) {
 export function validarConfig(c) {
   const e = [];
   if (!Number.isInteger(c.k) || c.k < 5) e.push('k debe ser un entero de 5 o más.');
-  if (![10, 20].includes(c.anchoEdad)) e.push('El rango de edad debe ser de 10 o 20 años.');
+  if (!Number.isInteger(c.anchoEdad) || c.anchoEdad < ANCHO_EDAD.min || c.anchoEdad > ANCHO_EDAD.max) {
+    e.push(`El rango de edad debe ser un entero entre ${ANCHO_EDAD.min} y ${ANCHO_EDAD.max} años.`);
+  }
   if (!['region', 'provincia'].includes(c.ubicacion)) e.push('Ubicación inválida.');
   if (!['mes', 'anio'].includes(c.fecha)) e.push('Nivel de fecha inválido.');
   if (!Number.isInteger(c.l) || c.l < 1) e.push('l debe ser un entero de 1 o más.');
@@ -182,13 +184,36 @@ export function validarConfig(c) {
   return e;
 }
 
+// Ancho de los grupos de edad que el operador puede elegir (en años).
+export const ANCHO_EDAD = Object.freeze({ min: 5, max: 60 });
+
+// Inicio de cada grupo de edad. Los cortes caen en múltiplos del ancho; el primer grupo empieza
+// en 18 y se elige el primer corte que deja ese grupo más cercano al ancho (con 20: 18-39, 40-59,
+// 60-79; con 10: 18-29, 30-39…). Un último tramo menor que medio ancho se une al anterior. 80+ aparte.
+function iniciosDeEdad(ancho) {
+  const m1 = Math.ceil(19 / ancho) * ancho, m2 = m1 + ancho;
+  const primero = Math.abs(m1 - 18 - ancho) < Math.abs(m2 - 18 - ancho) ? m1 : m2;
+  const inicios = [18];
+  for (let c = primero; c < 80; c += ancho) inicios.push(c);
+  if (inicios.length > 1 && 80 - inicios.at(-1) < ancho / 2) inicios.pop();
+  return inicios;
+}
+
 export function grupoEdad(edad, ancho) {
   if (edad >= 80) return '80+';
-  const inicio = ancho === 20
-    ? (edad < 40 ? 18 : edad < 60 ? 40 : 60)
-    : (edad < 30 ? 18 : Math.floor(edad / 10) * 10);
-  const fin = ancho === 20 ? (inicio === 18 ? 39 : inicio + 19) : (inicio === 18 ? 29 : inicio + 9);
-  return `${inicio}-${fin}`;
+  const inicios = iniciosDeEdad(ancho);
+  const i = inicios.findLastIndex(x => x <= edad);
+  return `${inicios[i]}-${(inicios[i + 1] ?? 80) - 1}`;
+}
+
+// Lista de grupos que produce un ancho, para mostrarla antes de proteger.
+export function gruposDeEdad(ancho) {
+  const grupos = [];
+  for (let edad = 18; edad <= 80; edad++) {
+    const g = grupoEdad(edad, ancho);
+    if (grupos.at(-1) !== g) grupos.push(g);
+  }
+  return grupos;
 }
 
 function enteroAleatorio(n) { // uniforme en [0, n)

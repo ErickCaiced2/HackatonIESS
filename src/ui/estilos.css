@@ -200,3 +200,15 @@ fieldset.periodo .fila { margin: 4px 0; }
   .panel { padding: 18px; }
 }
 @media print { nav, #siguiente, header .acciones, .vistas { display: none; } .disposicion { display: block; } header { position: static; } .panel { box-shadow: none; } }
+
+/* Contador con disminuir / aumentar */
+.campo { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.etiqueta-campo { font-weight: 500; }
+.contador { display: flex; align-items: stretch; width: fit-content; border: 1px solid var(--borde-campo); border-radius: var(--radio-chico); overflow: hidden; background: var(--superficie); }
+.contador button { min-width: 40px; min-height: 40px; padding: 0 12px; border: 0; border-radius: 0; font-size: 18px; line-height: 1; }
+.contador button:first-child { border-right: 1px solid var(--borde); }
+.contador button:last-child { border-left: 1px solid var(--borde); }
+.contador input[type=number] { width: 64px; min-height: 40px; border: 0 !important; border-radius: 0 !important; text-align: center; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.contador input[type=number]::-webkit-inner-spin-button, .contador input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.contador .unidad { display: flex; align-items: center; padding-right: 10px; color: var(--suave); font-size: 14px; }
+.contador:has(input:disabled) { background: var(--superficie-2); }

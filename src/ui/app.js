@@ -1,6 +1,6 @@
 // Panel en una sola vista. Los datos viven solo en memoria.
 import { REFERENCIA, PROPIA } from '../motor/config.js';
-import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, plan, validarConfig } from '../motor/motor.js';
+import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, plan, validarConfig, ANCHO_EDAD, gruposDeEdad } from '../motor/motor.js';
 import { aCSV } from '../motor/csv.js';
 import { zip } from '../motor/zip.js';
 import { CAPITULOS, bloquesDe, categoriasDe, FILTRO_ESTUDIO, esDelEstudio, nombreCIE10,
@@ -250,6 +250,20 @@ function panelProteccion() {
       onchange: e => cambiar(clave, opciones.find(o => String(o[0]) === e.target.value)[0]) },
     opciones.map(([v, t]) => h('option', { value: String(v), selected: c[clave] === v }, t))),
     h('small', {}, ayuda));
+  // Contador con disminuir / aumentar; el valor siempre queda dentro de [min, max].
+  const contador = (texto, clave, { min, max, unidad }, ayuda) => {
+    const valor = c[clave];
+    const fijar = v => { const n = Math.round(Number(v)); if (Number.isFinite(n) && n !== valor) cambiar(clave, Math.min(max, Math.max(min, n))); else pintar(); };
+    return h('div', { className: 'campo' },
+      h('span', { id: `p-${clave}-etiqueta`, className: 'etiqueta-campo' }, texto),
+      h('div', { className: 'contador', role: 'group', 'aria-labelledby': `p-${clave}-etiqueta` },
+        boton('−', () => fijar(valor - 1), { id: `p-${clave}-menos`, 'aria-label': `Disminuir ${texto.toLowerCase()}`, disabled: fija || valor <= min }),
+        h('input', { type: 'number', id: 'p-' + clave, min, max, step: 1, value: valor, disabled: fija, inputMode: 'numeric',
+          'aria-label': `${texto} en ${unidad}`, onchange: e => fijar(e.target.value) }),
+        h('span', { className: 'unidad' }, unidad),
+        boton('+', () => fijar(valor + 1), { id: `p-${clave}-mas`, 'aria-label': `Aumentar ${texto.toLowerCase()}`, disabled: fija || valor >= max })),
+      h('small', {}, ayuda));
+  };
   const variables = plan(c);
   const errores = validarConfig(c);
   return [
@@ -260,7 +274,8 @@ function panelProteccion() {
     detalle('parametros', fija ? 'Ver los parámetros (fijos en la referencia)' : 'Ajustar parámetros',
       h('div', { className: 'fila' },
         selector('Grupo mínimo (k)', 'k', [5, 6, 8, 10, 15].map(n => [n, `${n} personas`]), 'Cada persona se confunde con otras. Más alto protege más.'),
-        selector('Rangos de edad', 'anchoEdad', [[20, 'De 20 años'], [10, 'De 10 años']], '20 protege más; 10 da más detalle.'),
+        contador('Ancho de los rangos de edad', 'anchoEdad', { ...ANCHO_EDAD, unidad: 'años' },
+          `Más años protegen más; menos dan más detalle. Entre ${ANCHO_EDAD.min} y ${ANCHO_EDAD.max}. Grupos: ${gruposDeEdad(c.anchoEdad).join(' · ')}`),
         selector('Ubicación', 'ubicacion', [['region', 'Región'], ['provincia', 'Provincia']], 'Región agrupa a más personas.'),
         selector('Fecha', 'fecha', [['mes', 'Año y mes'], ['anio', 'Solo año']], 'El estudio pide año y mes.'),
         selector('Diagnósticos distintos por grupo (l)', 'l', [[1, 'No exigir'], [2, 'Al menos 2'], [3, 'Al menos 3']], 'Evita deducir la enfermedad de un grupo.'),
