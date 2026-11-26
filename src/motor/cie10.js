@@ -366,12 +366,41 @@ export function categoriasDe(capitulo, bloque, codigosDelArchivo = []) {
 }
 
 // Filtro que pide el estudio.
-export const FILTRO_ESTUDIO = Object.freeze({ capitulo: 'V', bloque: '', categoria: '' });
-export const esDelEstudio = f => f.capitulo === 'V' && !f.bloque && !f.categoria;
+// El periodo (años de fecha_ingreso) lo elige el operador; el estudio pide 2023-2025.
+export const PERIODO_MINIMO = 1980;
+export const anioActual = () => new Date().getFullYear();
+export const PERIODO_ESTUDIO = Object.freeze({ desde: 2023, hasta: 2025 });
+export const FILTRO_ESTUDIO = Object.freeze({ capitulo: 'V', bloque: '', categoria: '', ...PERIODO_ESTUDIO });
+
+// Los filtros sin periodo usan el del estudio.
+export const periodo = f => ({ desde: Number(f.desde ?? PERIODO_ESTUDIO.desde), hasta: Number(f.hasta ?? PERIODO_ESTUDIO.hasta) });
+export const etiquetaPeriodo = f => {
+  const { desde, hasta } = periodo(f);
+  return desde === hasta ? String(desde) : `${desde}-${hasta}`;
+};
+export function validarPeriodo(f, actual = anioActual()) {
+  const { desde, hasta } = periodo(f);
+  if (!Number.isInteger(desde) || !Number.isInteger(hasta)) return 'El periodo debe tener un año de inicio y uno de fin.';
+  if (desde < PERIODO_MINIMO || hasta > actual) return `El periodo debe estar entre ${PERIODO_MINIMO} y ${actual}.`;
+  if (desde > hasta) return 'El año de inicio no puede ser mayor que el año de fin.';
+  return '';
+}
+// fecha_ingreso en formato AAAA-MM-DD.
+export const enPeriodo = (fecha, f) => {
+  const { desde, hasta } = periodo(f);
+  return fecha >= `${desde}-01-01` && fecha <= `${hasta}-12-31`;
+};
+
+const esPeriodoDelEstudio = f => {
+  const p = periodo(f);
+  return p.desde === PERIODO_ESTUDIO.desde && p.hasta === PERIODO_ESTUDIO.hasta;
+};
+const esDiagnosticoDelEstudio = f => f.capitulo === 'V' && !f.bloque && !f.categoria;
+export const esDelEstudio = f => esDiagnosticoDelEstudio(f) && esPeriodoDelEstudio(f);
 
 export function coincide(codigo, filtro) {
   // Regla exacta del diccionario para el estudio: el código empieza con «F».
-  if (esDelEstudio(filtro)) return codigo.startsWith('F');
+  if (esDiagnosticoDelEstudio(filtro)) return codigo.startsWith('F');
   const c = codigo.slice(0, 3);
   if (!/^[A-Z]\d{2}$/.test(c)) return false;
   const r = filtro.categoria ? { desde: filtro.categoria, hasta: filtro.categoria }

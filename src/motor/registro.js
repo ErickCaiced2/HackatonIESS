@@ -13,6 +13,7 @@ export function entradaDeEjecucion(r, { archivo = '', solicitadoEn = r.fecha } =
     id: r.id,
     archivo,
     configuracion: r.config.tipo,
+    periodo: r.cohorte.periodo ?? '',
     solicitadoEn,
     elaboradoEn: r.fecha,
     kMeta: r.config.k,

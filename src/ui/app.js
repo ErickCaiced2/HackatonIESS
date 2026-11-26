@@ -3,7 +3,8 @@ import { REFERENCIA, PROPIA } from '../motor/config.js';
 import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, plan, validarConfig } from '../motor/motor.js';
 import { aCSV } from '../motor/csv.js';
 import { zip } from '../motor/zip.js';
-import { CAPITULOS, bloquesDe, categoriasDe, FILTRO_ESTUDIO, esDelEstudio, nombreCIE10 } from '../motor/cie10.js';
+import { CAPITULOS, bloquesDe, categoriasDe, FILTRO_ESTUDIO, esDelEstudio, nombreCIE10,
+  periodo, etiquetaPeriodo, anioActual, PERIODO_MINIMO } from '../motor/cie10.js';
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
   BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
 import { crearRegistro, entradaDeEjecucion, resumenRegistro } from '../motor/registro.js';
@@ -126,21 +127,34 @@ function filtroCIE10() {
   // Grupo y categoría dependen del capítulo elegido (y la categoría, del grupo).
   const capitulo = f.capitulo;
   const categorias = categoriasDe(capitulo, f.bloque, S.contar.codigos);
-  return detalle('filtro', `Filtro de diagnóstico: ${esDelEstudio(f) ? 'el que pide el estudio (salud mental)' : 'personalizado (solo exploración)'}`,
-    h('p', {}, 'CIE-10 es el catálogo internacional de enfermedades. El estudio pide todo el capítulo V (códigos que empiezan con F).'),
+  // El periodo se conserva al cambiar capítulo, grupo o categoría.
+  const p = periodo(f);
+  const anios = [];
+  for (let a = anioActual(); a >= PERIODO_MINIMO; a--) anios.push(a);
+  // Solo se ofrecen años válidos: el inicio nunca queda después del fin.
+  const selectorAnio = (texto, id, valor, valido, alCambiar) => h('label', {}, texto,
+    h('select', { id, onchange: e => alCambiar(Number(e.target.value)) },
+      anios.map(a => h('option', { value: a, selected: a === valor, disabled: !valido(a) }, String(a)))));
+  return detalle('filtro', `Filtro de diagnóstico y periodo: ${esDelEstudio(f) ? 'el que pide el estudio (salud mental, 2023-2025)' : 'personalizado (solo exploración)'}`,
+    h('p', {}, 'CIE-10 es el catálogo internacional de enfermedades. El estudio pide todo el capítulo V (códigos que empiezan con F) y atenciones de 2023 a 2025.'),
     h('div', { className: 'fila' },
       selector('Capítulo', 'f-capitulo', capitulo,
-        CAPITULOS.map(c => con(`${c.id} · ${c.desde}-${c.hasta} · ${c.nombre}`, c.id, { capitulo: c.id, bloque: '', categoria: '' })),
-        v => cambiarFiltro({ capitulo: v, bloque: '', categoria: '' })),
+        CAPITULOS.map(c => con(`${c.id} · ${c.desde}-${c.hasta} · ${c.nombre}`, c.id, { capitulo: c.id, bloque: '', categoria: '', ...p })),
+        v => cambiarFiltro({ capitulo: v, bloque: '', categoria: '', ...p })),
       selector('Grupo', 'f-grupo', f.bloque,
-        [con('Todos', '', { capitulo, bloque: '', categoria: '' }),
-          ...bloquesDe(capitulo).map(b => con(`${b.id} · ${b.nombre}`, b.id, { capitulo, bloque: b.id, categoria: '' }))],
-        v => cambiarFiltro({ capitulo, bloque: v, categoria: '' })),
+        [con('Todos', '', { capitulo, bloque: '', categoria: '', ...p }),
+          ...bloquesDe(capitulo).map(b => con(`${b.id} · ${b.nombre}`, b.id, { capitulo, bloque: b.id, categoria: '', ...p }))],
+        v => cambiarFiltro({ capitulo, bloque: v, categoria: '', ...p })),
       selector('Categoría', 'f-categoria', f.categoria,
         [con('Todas', '', { ...f, categoria: '' }),
           ...categorias.map(([c, n]) => con(esF ? `${c} · ${n}` : `${c} · grupo: ${n}`, c, { ...f, categoria: c }))],
         v => cambiarFiltro({ ...f, categoria: v }))),
-    h('p', { className: 'nota' }, 'Los conteos ya consideran 18 años o más y atenciones de 2023-2025. «Sin datos» significa que este archivo no tiene casos que cumplan.'
+    h('fieldset', { className: 'periodo' }, h('legend', {}, `Periodo de atención (fecha de ingreso) · ${num(S.contar(f))} personas`),
+      h('div', { className: 'fila' },
+        selectorAnio('Desde el año', 'f-desde', p.desde, a => a <= p.hasta, v => cambiarFiltro({ ...f, desde: v })),
+        selectorAnio('Hasta el año', 'f-hasta', p.hasta, a => a >= p.desde, v => cambiarFiltro({ ...f, hasta: v }))),
+      h('p', { className: 'nota' }, `Años entre ${PERIODO_MINIMO} y ${anioActual()}. Puede ser un solo año (inicio igual al fin). Incluye del 1 de enero del año de inicio al 31 de diciembre del año de fin.`)),
+    h('p', { className: 'nota' }, `Los conteos ya consideran 18 años o más y atenciones de ${etiquetaPeriodo(f)}. «Sin datos» significa que este archivo no tiene casos que cumplan.`
       + (esF ? '' : ' Fuera del capítulo V, la lista de categorías muestra los códigos presentes en este archivo.')),
     !esDelEstudio(f) && boton('Volver al filtro del estudio', () => cambiarFiltro({ ...FILTRO_ESTUDIO })));
 }
@@ -171,7 +185,7 @@ function panelDatos() {
       ['Atenciones en el archivo', num(c.entrada)],
       [`− Diagnóstico fuera del filtro (${c.etiquetaFiltro})`, num(c.excluidas.diagnostico)],
       ['− Menor de 18 años en la fecha de atención', num(c.excluidas.menor)],
-      ['− Fuera de 2023-2025', num(c.excluidas.periodo)],
+      [`− Fuera del periodo ${c.periodo}`, num(c.excluidas.periodo)],
       ['= Atenciones en la cohorte', num(c.atenciones)]]),
     h('p', {}, `Identificadores presentes ahora: ${ident(S.antes.identificadores)}.`)),
   ];
@@ -527,6 +541,7 @@ function detalleEjecucion(e) {
       ['Petición de anonimización', fechaHora(e.solicitadoEn)],
       ['Elaboración del dataset', fechaHora(e.elaboradoEn)],
       ['Archivo de origen', e.archivo || '—'],
+      ['Periodo de atención', e.periodo || '—'],
       ['Configuración', e.configuracion],
       ['Medición de riesgo (k)', `Antes: ${e.kAntes} · Después: ${e.kDespues} · Meta: ${e.kMeta} o más`],
       ['Personas', `${num(e.personasAntes)} → ${num(e.personasDespues)}`],

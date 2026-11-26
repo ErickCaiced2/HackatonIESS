@@ -166,3 +166,28 @@ test('filtro: cada capítulo tiene grupos dentro de su rango y categorías que d
   }
   assert.equal(contar({ capitulo: 'X', bloque: 'J00-J06', categoria: '' }), 1);
 });
+
+test('periodo: lo elige el operador, entre 1980 y el año actual, con inicio ≤ fin', async () => {
+  const { validarPeriodo, esDelEstudio, FILTRO_ESTUDIO } = await import('../src/motor/cie10.js');
+  const { datos } = preparar();
+  const f = (desde, hasta) => ({ ...FILTRO_ESTUDIO, desde, hasta });
+  assert.equal(validarPeriodo(f(2023, 2025), 2026), '');
+  assert.equal(validarPeriodo(f(2025, 2025), 2026), '');
+  assert.equal(validarPeriodo(f(1980, 2026), 2026), '');
+  assert.match(validarPeriodo(f(2025, 2023), 2026), /inicio no puede ser mayor/);
+  assert.match(validarPeriodo(f(1979, 2023), 2026), /entre 1980 y 2026/);
+  assert.match(validarPeriodo(f(2023, 2027), 2026), /entre 1980 y 2026/);
+  assert.throws(() => extraerCohorte(datos.filas, f(2025, 2023)), /inicio no puede ser mayor/);
+  // El periodo del estudio es 2023-2025; otro periodo es exploración.
+  assert.ok(esDelEstudio(f(2023, 2025)));
+  assert.equal(esDelEstudio(f(2024, 2025)), false);
+  // El conteo previo y la cohorte usan el mismo periodo.
+  const contar = contadorPorFiltro(datos.filas);
+  for (const filtro of [f(2023, 2023), f(2025, 2025), f(2024, 2024), f(1980, 2026)]) {
+    const c = extraerCohorte(datos.filas, filtro);
+    assert.equal(contar(filtro), c.personas);
+    assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.menor + c.excluidas.periodo);
+  }
+  assert.equal(extraerCohorte(datos.filas, f(2023, 2023)).periodo, '2023');
+  assert.equal(extraerCohorte(datos.filas, f(2023, 2025)).periodo, '2023-2025');
+});
