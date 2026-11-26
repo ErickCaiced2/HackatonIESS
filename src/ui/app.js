@@ -8,7 +8,7 @@ import { CAPITULOS, bloquesDe, categoriasDe, FILTRO_ESTUDIO, esDelEstudio, nombr
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
   BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
 import { crearRegistro, entradaDeEjecucion, resumenRegistro, filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal } from '../motor/registro.js';
-import { TIPOS_DESTINATARIO, validarDestinatario, mismoDestinatario, etiquetaDestinatario, ejemploDestinatario, normalizarId, formatearId, excedeLongitud } from '../motor/destinatario.js';
+import { TIPOS_DESTINATARIO, validarDestinatario, etiquetaDestinatario, ejemploDestinatario, normalizarId, formatearId, excedeLongitud } from '../motor/destinatario.js';
 import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar, cerrarNotificaciones } from './dom.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
@@ -18,10 +18,9 @@ const inicial = () => ({
   deshacer: null, desactualizado: false,
   destinatario: { tipo: 'msp', id: '' }, // a quién va dirigida la petición
 });
+// El PTA usa los textos de riesgo y de resumen ya redactados; en Entrega solo se acepta el acuerdo.
 const ptaInicial = () => ({
-  riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR, atacante: '', canal: '', okRiesgo: false, okTitular: false,
   acuerdoEn: '', // fecha en que se marcó el acuerdo; vacío = no aceptado
-  entregarA: { tipo: 'msp', id: '' }, // a quién se entregan los archivos; debe ser el destinatario de la petición
 });
 let S = inicial();
 const pta = ptaInicial();
@@ -82,7 +81,7 @@ async function sePuedeDescartar(accion) {
     `Al ${accion} se borran los resultados de esta sesión. Las descargas ya guardadas no cambian.`, 'Descartar y continuar');
 }
 
-function limpiarRevision() { pta.okRiesgo = pta.okTitular = false; pta.acuerdoEn = ''; pta.entregarA = { tipo: 'msp', id: '' }; }
+function limpiarRevision() { pta.acuerdoEn = ''; }
 
 // ---------- 1. Datos ----------
 async function cargar(entrada) {
@@ -235,10 +234,8 @@ function elegirModo(tipo) {
 function anonimizar() {
   const solicitadoEn = new Date().toISOString(); // momento en que el operador pide la anonimización
   trabajar('Protegiendo los datos y midiendo el resultado…', () => {
-    const errorDestinatario = validarDestinatario(S.destinatario);
-    if (errorDestinatario) throw new Error('Destinatario de la petición: ' + errorDestinatario);
     S.r = ejecutar(S.cohorte, S.config, S.datos.nombreOriginal);
-    S.r.destinatario = { tipo: S.destinatario.tipo, id: normalizarId(S.destinatario.id) };
+    S.r.destinatario = null; // se registra en el paso Petición
     registro.agregar(entradaDeEjecucion(S.r, { archivo: S.archivo, solicitadoEn }));
     S.historial[S.config.tipo] = S.r;
     S.desactualizado = false;
@@ -300,10 +297,9 @@ function panelProteccion() {
       tablaConBusqueda('variables', ['Columna', 'Qué es', 'Categoría especial', '¿La pide el estudio?', 'Qué se hace', 'Cómo'],
         variables.map(v => [v.nombre, v.clasificacion, v.categoria || '—', v.solicitada, v.tecnica, v.parametro || '—']))),
     errores.map(e => aviso('mal', e)),
-    campoDestinatario(),
     h('div', { className: 'acciones' },
       boton(S.r ? 'Volver a proteger y medir' : 'Proteger los datos y medir', anonimizar,
-        { className: 'principal', id: 'anonimizar', disabled: errores.length > 0 || !!validarDestinatario(S.destinatario) }),
+        { className: 'principal', id: 'anonimizar', disabled: errores.length > 0 }),
       S.deshacer && boton('Deshacer el último cambio ↶', () => {
         Object.assign(S, S.deshacer, { deshacer: null });
         limpiarRevision(); pintar();
@@ -351,22 +347,6 @@ function campoPersona(prefijo, valor, { alEscribir, alConfirmar, extraError = ()
     h('label', {}, valor.tipo === 'msp' ? 'Número de licencia del MSP' : 'Identificador institucional del IESS', entrada)), mensaje];
 }
 
-function campoDestinatario() {
-  const marcarCambio = () => {
-    if (S.r) {
-      guardarParaDeshacer();
-      S.r = null; delete S.historial[S.config.tipo]; S.desactualizado = true; limpiarRevision();
-      notificar('aviso', 'Cambió el destinatario de la petición. Vuelva a proteger los datos para registrar la petición a su nombre.');
-    }
-    pintar();
-  };
-  return h('fieldset', { className: 'destinatario' }, h('legend', {}, 'Petición dirigida a'),
-    h('p', { className: 'nota' }, 'Persona que recibirá los datos. Profesional de salud: número de licencia del MSP. Personal del IESS: identificador institucional (ej.: IESS-0002). Queda en el registro y solo esta persona podrá recibir la entrega.'),
-    campoPersona('dest', S.destinatario, {
-      alEscribir: () => { const b = $('anonimizar'); if (b) b.disabled = validarConfig(S.config).length > 0 || !!validarDestinatario(S.destinatario); },
-      alConfirmar: marcarCambio,
-    }));
-}
 
 // ---------- 3. Resultados ----------
 function panelResultados() {
@@ -453,16 +433,49 @@ function panelTraza() {
   ];
 }
 
-// ---------- 5. Entrega ----------
+// ---------- 5. Petición ----------
+// A quién va dirigido el entregable. Se registra una sola vez por ejecución (no repudio).
+function registrarPeticion() {
+  const err = validarDestinatario(S.destinatario);
+  if (err) { mostrarError('Petición: ' + err); return; }
+  const destinatario = { tipo: S.destinatario.tipo, id: normalizarId(S.destinatario.id) };
+  const fecha = new Date().toISOString();
+  try {
+    if (!registro.peticion(S.r.id, destinatario, fecha)) throw new Error('Esta ejecución ya tiene una petición registrada.');
+  } catch (e) { mostrarError(e.message); return; }
+  S.r.destinatario = destinatario;
+  S.r.peticionEn = fecha;
+  limpiarRevision();
+  pintar();
+  notificar('ok', `Petición registrada para ${etiquetaDestinatario(destinatario)}.`);
+  irA('entrega');
+}
+
+function panelPeticion() {
+  if (!S.r) return [bloqueo('Primero proteja los datos: la petición se registra sobre una ejecución.', 'proteccion')];
+  const r = S.r;
+  if (r.destinatario) {
+    return [
+      aviso('ok', `Petición registrada para ${etiquetaDestinatario(r.destinatario)}. Fecha: ${fechaHora(r.peticionEn)}`),
+      h('p', { className: 'nota' }, 'Por no repudio, la petición de esta ejecución no se puede cambiar. Para dirigirla a otra persona, vuelva a proteger los datos: se crea una ejecución nueva.'),
+    ];
+  }
+  const valido = () => !validarDestinatario(S.destinatario);
+  const registrar = boton('Registrar petición', registrarPeticion, { className: 'principal', id: 'registrar-peticion', disabled: !valido() });
+  return [
+    h('p', {}, 'Indique el personal que desea el entregable: un profesional de salud (número de licencia del MSP) o personal del IESS (identificador institucional, ej.: IESS-0002). Solo esa persona podrá recibir los archivos.'),
+    campoPersona('dest', S.destinatario, { alEscribir: () => { registrar.disabled = !valido(); }, alConfirmar: () => pintar() }),
+    h('div', { className: 'acciones' }, registrar),
+    h('p', { className: 'nota' }, `Ejecución ${r.id}. Una vez registrada, la petición no se puede cambiar.`),
+  ];
+}
+
+// ---------- 6. Entrega ----------
 // [texto, cumple, campo que lo corrige: id, sección y desplegable que hay que abrir]
 const requisitos = () => [
   ['La cohorte es la que pide el estudio', !!S.r?.cohorte.esEstudio, ['f-capitulo', 'datos', 'filtro']],
   ['La ejecución es APTA', !!S.r?.apto, ['p-k', 'proteccion', 'parametros']],
-  ['Se entrega al destinatario de la petición', mismoDestinatario(pta.entregarA, S.r?.destinatario), ['entregar-id', 'entrega']],
-  ['Supuesto sobre quién podría reidentificar, escrito', pta.atacante.trim() !== '', ['pta-atacante', 'entrega']],
-  ['Canal para ejercer derechos, escrito', pta.canal.trim() !== '', ['pta-canal', 'entrega']],
-  ['Texto de riesgo residual revisado', pta.okRiesgo, ['okRiesgo', 'entrega']],
-  ['Resumen para el titular revisado', pta.okTitular, ['okTitular', 'entrega']],
+  ['Petición registrada con su destinatario', !!S.r?.destinatario, ['dest-id', 'peticion']],
   ['Acuerdo de confidencialidad aceptado', pta.acuerdoEn !== '', ['acuerdo', 'entrega']],
 ];
 
@@ -495,14 +508,14 @@ function descargar(nombre, contenido, tipo) {
 async function descargarEntrega(cual) {
   if (!entregaLista()) throw new Error('Faltan requisitos de entrega.');
   const r = S.r, base = r.id, aceptadoEn = pta.acuerdoEn; // los archivos se nombran con el código de la ejecución
-  if (!mismoDestinatario(pta.entregarA, r.destinatario)) throw new Error('Los archivos solo pueden entregarse al destinatario de la petición.');
-  const entregadoA = { tipo: pta.entregarA.tipo, id: normalizarId(pta.entregarA.id) };
+  if (!r.destinatario) throw new Error('Registre primero a quién va dirigida la petición.');
+  const entregadoA = { ...r.destinatario }; // solo se entrega a la persona de la petición
   const csv = aCSV(r.columnas, r.salida), config = configuracionJSON(r);
   const archivos = {
     csv: [base + '_salida.csv', csv, 'text/csv;charset=utf-8'],
     config: [base + '_configuracion.json', config, 'application/json'],
     traza: [base + '_trazabilidad.json', await trazabilidadJSON(r, await sha256(csv), await sha256(config), aceptadoEn, entregadoA), 'application/json'],
-    pta: [base + '_PTA.html', ptaHTML(r, pta), 'text/html;charset=utf-8'],
+    pta: [base + '_PTA.html', ptaHTML(r, { riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR }), 'text/html;charset=utf-8'],
   };
   const elegido = cual === 'zip'
     ? [base + '_paquete.zip', zip([...Object.values(archivos).map(([n, c]) => [n, c]),
@@ -537,22 +550,6 @@ function panelEntrega() {
     motivo.textContent = faltan ? `Faltan ${faltan} requisito(s) para habilitar la descarga. Pulse uno para ir al campo.` : 'Todo listo. Para obtener el PDF, abra el PTA y use Imprimir.';
     pintarNavegacion();
   };
-  const casillas = {};
-  const escribir = (texto, clave, ok, ejemplo, props = {}) => h('label', {}, texto,
-    h('input', { id: 'pta-' + clave, value: pta[clave], placeholder: ejemplo, ...props,
-      oninput: e => {
-        if (props.inputMode === 'numeric') e.target.value = e.target.value.replace(/\D/g, '').slice(0, 2);
-        pta[clave] = e.target.value;
-        if (ok) { pta[ok] = false; casillas[ok].checked = false; }
-        estado.replaceChildren();
-        actualizar();
-      } }));
-  const seccion = (titulo, clave, ok, campo) => {
-    casillas[ok] = h('input', { type: 'checkbox', id: ok, checked: pta[ok], onchange: e => { pta[ok] = e.target.checked; actualizar(); } });
-    return h('fieldset', {}, h('legend', {}, titulo), campo,
-      h('textarea', { value: pta[clave], readOnly: true, 'aria-label': titulo + ' (solo lectura)' }),
-      h('label', { className: 'casilla' }, casillas[ok], ' Leí este texto y el equipo está de acuerdo'));
-  };
   const casillaAcuerdo = h('input', { type: 'checkbox', id: 'acuerdo', checked: pta.acuerdoEn !== '',
     onchange: e => {
       pta.acuerdoEn = e.target.checked ? new Date().toISOString() : '';
@@ -560,27 +557,13 @@ function panelEntrega() {
       actualizar();
     } });
   const acuerdo = h('fieldset', { className: 'acuerdo' }, h('legend', {}, 'Acuerdo de confidencialidad y uso'),
+    h('p', {}, 'Los archivos se entregan a: ', h('strong', {}, S.r.destinatario ? etiquetaDestinatario(S.r.destinatario) : 'petición sin registrar')),
     h('p', {}, 'Los archivos derivan de datos de salud. Para descargar cualquiera de ellos, me comprometo a:'),
     h('ol', {}, ACUERDO.condiciones.map(c => h('li', {}, c))),
     h('label', { className: 'casilla' }, casillaAcuerdo, h('strong', {}, 'He leído y acepto este acuerdo')));
   const vista = [
     S.r.config.tipo === 'referencia' && aviso('aviso', 'Va a exportar la configuración REFERENCIA.',
       boton('Cambiar a Propia', () => { elegirModo('propia'); irA('proteccion'); })),
-    h('section', { className: 'apartado-entrega', 'aria-labelledby': 'autorizada-h' },
-      h('h3', { id: 'autorizada-h' }, 'Persona autorizada a recibir los archivos'),
-      h('p', { className: 'nota' }, 'Indique a qué personal se envían o autorizan los archivos: un profesional de salud (número de licencia del MSP) o personal del IESS (identificador institucional). Solo puede ser la persona registrada en la petición.'),
-      h('p', { className: 'peticion-para' }, 'Petición dirigida a: ', h('strong', {}, etiquetaDestinatario(S.r.destinatario))),
-      campoPersona('entregar', pta.entregarA, {
-        alEscribir: () => actualizar(),
-        alConfirmar: () => pintar(),
-        extraError: v => (mismoDestinatario(v, S.r.destinatario) ? '' : 'No coincide con el destinatario de la petición: no se puede entregar a otra persona.'),
-      }),
-      mismoDestinatario(pta.entregarA, S.r.destinatario) && aviso('ok', `Entrega autorizada a ${etiquetaDestinatario(S.r.destinatario)}.`)),
-    h('h3', {}, 'Textos del protocolo (PTA)'),
-    seccion('Riesgo que queda y cómo se reduce', 'riesgo', 'okRiesgo',
-      escribir('¿Quién podría intentar reidentificar? (supuesto del equipo)', 'atacante', 'okRiesgo', 'Escriba el supuesto del equipo')),
-    seccion('Resumen para la persona titular de los datos', 'titular', 'okTitular',
-      escribir('Canal para ejercer derechos', 'canal', 'okTitular', 'Canal confirmado con la organización')),
     acuerdo,
     h('h3', {}, 'Antes de descargar'), lista, motivo,
     h('div', { className: 'acciones' }, botones), estado,
@@ -604,7 +587,9 @@ const SECCIONES = [
     () => (S.r ? (S.r.apto ? ['ok', 'Apto'] : ['mal', 'No apto']) : ['neutro', 'Pendiente'])],
   ['trazabilidad', '4. Trazabilidad', 'Qué se hizo, en qué orden y con qué resultado.', panelTraza,
     () => (S.r ? ['ok', 'Disponible'] : ['neutro', 'Pendiente'])],
-  ['entrega', '5. Entrega', 'Revise los textos y descargue los archivos.', panelEntrega,
+  ['peticion', '5. Petición', 'Registre a qué personal va dirigido el entregable.', panelPeticion,
+    () => (!S.r ? ['neutro', 'Bloqueado'] : S.r.destinatario ? ['ok', 'Registrada'] : ['aviso', 'Por hacer'])],
+  ['entrega', '6. Entrega', 'Acepte el acuerdo de confidencialidad y descargue los archivos.', panelEntrega,
     () => (!S.r ? ['neutro', 'Bloqueado'] : entregaLista() ? ['ok', 'Lista'] : ['aviso', 'Faltan datos'])],
 ];
 
@@ -614,7 +599,8 @@ function siguientePaso() {
   if (!S.r) return ['Proteja los datos y mida el resultado.', 'proteccion'];
   if (!S.r.apto) return ['Ajuste la protección: el resultado no es apto.', 'proteccion'];
   if (!S.r.cohorte.esEstudio) return ['Para entregar, vuelva al filtro del estudio.', 'datos'];
-  if (!entregaLista()) return ['Revise los resultados y complete la entrega.', 'entrega'];
+  if (!S.r.destinatario) return ['Registre a qué personal va dirigida la petición.', 'peticion'];
+  if (!entregaLista()) return ['Acepte el acuerdo de confidencialidad para descargar.', 'entrega'];
   return ['Todo listo: descargue el paquete.', 'entrega'];
 }
 
@@ -825,7 +811,7 @@ $('ayuda-abrir').addEventListener('click', () => $('ayuda').showModal());
 $('ayuda-cerrar').addEventListener('click', () => $('ayuda').close());
 $('ver-tablero').addEventListener('click', () => irA('tablero'));
 $('ver-proceso').addEventListener('click', () => irA(siguientePaso()[1]));
-// Atajos: Alt+0 abre el tablero; Alt+1…5 salta a cada sección.
+// Atajos: Alt+0 abre el tablero; Alt+1…6 salta a cada sección.
 globalThis.addEventListener?.('keydown', e => {
   if (!e.altKey) return;
   if (e.key === '0') { e.preventDefault(); irA('tablero'); return; }

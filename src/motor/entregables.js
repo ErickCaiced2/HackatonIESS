@@ -106,8 +106,8 @@ ${tabla(['Indicador', 'Antes', 'Después'], [
 ${tabla(['Operación', 'Regla', 'Personas', 'Atenciones'], pasos)}
 <p>${r.config.l >= 2 ? `Los grupos con menos de ${r.config.l} diagnósticos distintos (3 caracteres) se suprimen.` : 'Esta configuración no trata los grupos homogéneos: solo se alertan en la pantalla del operador.'} No se detallan grupos pequeños para no revelar información sobre ellos.</p>
 <h2>5. Riesgo residual y mitigación</h2><p>${esc(riesgo)}</p>
-<p>Supuesto sobre quién podría intentar reidentificar: ${esc(atacante)}</p>
+${atacante ? `<p>Supuesto sobre quién podría intentar reidentificar: ${esc(atacante)}</p>` : ''}
 <h2>6. Resumen para el titular</h2><p>${esc(titular)}</p>
-<p>Canal para ejercer sus derechos: ${esc(canal)}</p>
+${canal ? `<p>Canal para ejercer sus derechos: ${esc(canal)}</p>` : ''}
 </body></html>`;
 }

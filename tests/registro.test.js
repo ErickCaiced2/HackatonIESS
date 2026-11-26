@@ -144,3 +144,16 @@ test('registro: búsqueda por fecha de petición, de entrega y texto; paginació
   assert.equal(paginar(muchas, 1, 50).filas.length, 23);
   assert.deepEqual(paginar([], 1), { filas: [], pagina: 1, paginas: 1, total: 0, desde: 0, hasta: 0 });
 });
+
+test('registro: la petición se registra una sola vez por ejecución', () => {
+  const { r } = ejecucion();
+  const reg = crearRegistro(null);
+  reg.agregar(entradaDeEjecucion(r));
+  assert.equal(reg.lista()[0].destinatario, null);
+  assert.equal(reg.peticion(r.id, { tipo: 'msp', id: '1720-2015-123456' }, '2026-04-01T10:00:00.000Z'), true);
+  assert.equal(reg.peticion(r.id, { tipo: 'iess', id: 'IESS-0009' }), false); // no se puede cambiar
+  assert.equal(reg.peticion('NO-EXISTE', { tipo: 'iess', id: 'IESS-0009' }), false);
+  const e = reg.lista()[0];
+  assert.deepEqual(e.destinatario, { tipo: 'msp', id: '1720-2015-123456' });
+  assert.equal(e.peticionEn, '2026-04-01T10:00:00.000Z');
+});
