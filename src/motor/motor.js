@@ -54,13 +54,16 @@ export function contadorPorFiltro(filas) {
     if (!porCodigo.has(codigo)) porCodigo.set(codigo, new Set());
     porCodigo.get(codigo).add(f.cedula);
   }
-  return filtro => {
+  const contar = filtro => {
     const personasFiltro = new Set();
     for (const [codigo, ids] of porCodigo) {
       if (coincide(codigo, filtro)) for (const id of ids) personasFiltro.add(id);
     }
     return personasFiltro.size;
   };
+  // Códigos de 3 caracteres del archivo: alimentan las categorías fuera del capítulo V.
+  contar.codigos = [...porCodigo.keys()];
+  return contar;
 }
 
 export function extraerCohorte(filas, filtro = FILTRO_ESTUDIO) {

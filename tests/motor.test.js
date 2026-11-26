@@ -6,7 +6,7 @@ import { aCSV, parsearCSV } from '../src/motor/csv.js';
 import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, grupoEdad, validarConfig } from '../src/motor/motor.js';
 import { ptaHTML, trazabilidadJSON, configuracionJSON } from '../src/motor/entregables.js';
 import { sintetico } from './sintetico.js';
-import { nombreCIE10, CATEGORIAS_F, BLOQUES_F } from '../src/motor/cie10.js';
+import { nombreCIE10, CATEGORIAS_F, BLOQUES_F, CAPITULOS, bloquesDe, categoriasDe } from '../src/motor/cie10.js';
 import { zip } from '../src/motor/zip.js';
 
 const preparar = () => {
@@ -143,4 +143,26 @@ test('filtro: el conteo previo coincide con la cohorte y marca las opciones sin 
     assert.equal(contar(filtro), extraerCohorte(datos.filas, filtro).personas);
   }
   assert.equal(contar({ capitulo: 'V', bloque: '', categoria: 'F20' }), 0);
+});
+
+test('filtro: cada capítulo tiene grupos dentro de su rango y categorías que dependen del grupo', () => {
+  for (const c of CAPITULOS) {
+    const grupos = bloquesDe(c.id);
+    assert.ok(grupos.length > 0, c.id);
+    assert.ok(grupos.every(b => b.desde >= c.desde && b.hasta <= c.hasta && b.desde <= b.hasta), c.id);
+  }
+  const { datos } = preparar();
+  const contar = contadorPorFiltro(datos.filas);
+  // Fuera del capítulo V, las categorías salen de los códigos del archivo.
+  assert.deepEqual(categoriasDe('X', '', contar.codigos).map(([c]) => c), ['J06']);
+  assert.deepEqual(categoriasDe('X', 'J00-J06', contar.codigos).map(([c]) => c), ['J06']);
+  assert.deepEqual(categoriasDe('X', 'J09-J18', contar.codigos), []);
+  assert.deepEqual(categoriasDe('IV', '', contar.codigos), []);
+  // En el capítulo V se usa el catálogo y se acota al grupo.
+  assert.ok(categoriasDe('V', 'F10-F19').every(([c]) => c >= 'F10' && c <= 'F19'));
+  // El conteo por grupo de otro capítulo coincide con la cohorte.
+  for (const filtro of [{ capitulo: 'X', bloque: 'J00-J06', categoria: '' }, { capitulo: 'X', bloque: 'J00-J06', categoria: 'J06' }, { capitulo: 'IV', bloque: 'E10-E14', categoria: '' }]) {
+    assert.equal(contar(filtro), extraerCohorte(datos.filas, filtro).personas);
+  }
+  assert.equal(contar({ capitulo: 'X', bloque: 'J00-J06', categoria: '' }), 1);
 });
