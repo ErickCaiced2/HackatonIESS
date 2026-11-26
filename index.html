@@ -16,17 +16,23 @@
       <h1>Tus datos, tus derechos</h1>
       <p>Proteja datos de salud antes de compartirlos con un investigador.</p>
     </div>
+    <div class="vistas" role="group" aria-label="Vistas">
+      <button type="button" id="ver-tablero" aria-current="page">Tablero</button>
+      <button type="button" id="ver-proceso">Proceso de anonimización</button>
+    </div>
     <div class="acciones">
       <button type="button" id="ayuda-abrir">? Ayuda y glosario</button>
       <button type="button" id="reiniciar">Empezar de nuevo</button>
     </div>
   </header>
 
-  <div class="disposicion">
+  <div id="tablero" class="tablero"></div>
+
+  <div class="disposicion" id="proceso" hidden>
     <nav aria-label="Secciones del panel">
       <div id="progreso"></div>
       <ul id="menu"></ul>
-      <p class="nota">Atajos: Alt + 1 a 5</p>
+      <p class="nota">Atajos: Alt + 0 tablero, Alt + 1 a 5 pasos</p>
     </nav>
     <div class="principal-columna">
       <div id="siguiente"></div>
@@ -43,6 +49,7 @@
     <h2 id="ayuda-titulo">Ayuda</h2>
     <h3>Cómo usar el panel</h3>
     <ol>
+      <li>En el Tablero vea el registro de ejecuciones y pulse «Nueva anonimización».</li>
       <li>Cargue el CSV y extraiga las personas del estudio.</li>
       <li>Elija cómo proteger: Referencia (verificación) o Propia (entrega).</li>
       <li>Revise si es APTO y cuánta utilidad se conservó.</li>
@@ -59,6 +66,7 @@
       <dt>Suprimir</dt><dd>Quitar una columna, o a las personas que quedan en grupos demasiado pequeños.</dd>
       <dt>Utilidad</dt><dd>Cuánto siguen sirviendo los datos para el estudio.</dd>
       <dt>Anonimizar</dt><dd>Procurar que nadie pueda identificar a la persona sin un esfuerzo desproporcionado. Siempre queda un riesgo.</dd>
+      <dt>Tablero</dt><dd>Página principal con el registro de cada ejecución: petición, riesgo k, anonimizaciones, clasificación, elaboración y descarga del dataset.</dd>
       <dt>PTA</dt><dd>Protocolo Técnico de Anonimización: el informe de lo que se hizo y del riesgo.</dd>
     </dl>
     <button type="button" id="ayuda-cerrar" class="principal">Cerrar</button>

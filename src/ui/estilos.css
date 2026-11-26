@@ -90,3 +90,10 @@ dd { margin: 0 0 8px; }
   nav { position: static; max-height: none; }
 }
 @media print { nav, #siguiente, header .acciones { display: none; } .disposicion { display: block; } }
+
+/* Tablero y selector de vistas */
+.vistas { display: flex; gap: 6px; }
+.vistas button { background: transparent; color: #fff; border-color: #fff; }
+.vistas button[aria-current="page"] { background: #fff; color: var(--azul); font-weight: 700; box-shadow: inset 0 -4px 0 #e08a00; }
+.tablero { max-width: 1360px; margin: 0 auto; padding: 16px; }
+.cabeza-tablero { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }

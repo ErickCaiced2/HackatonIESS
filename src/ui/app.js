@@ -6,6 +6,7 @@ import { zip } from '../motor/zip.js';
 import { CAPITULOS, BLOQUES_F, CATEGORIAS_F, FILTRO_ESTUDIO, esDelEstudio, nombreCIE10 } from '../motor/cie10.js';
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
   BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
+import { crearRegistro, entradaDeEjecucion, resumenRegistro } from '../motor/registro.js';
 import { h, boton, tabla, etiqueta, aviso, detalle, tablaConBusqueda, confirmar } from './dom.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
@@ -21,6 +22,9 @@ const ptaInicial = () => ({
 let S = inicial();
 const pta = ptaInicial();
 let pestana = 'recorrido', ocupado = false;
+// La página principal es el tablero; el proceso de 5 pasos se abre desde ahí.
+let vista = 'tablero';
+const registro = crearRegistro();
 
 const $ = id => document.getElementById(id);
 const anunciar = texto => { $('anuncio').textContent = texto; };
@@ -63,6 +67,7 @@ function trabajar(mensaje, fn, destino) {
 }
 
 function irA(id) {
+  verVista(id === 'tablero' ? 'tablero' : 'proceso');
   const seccion = $(id);
   seccion?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   $(id + '-h')?.focus?.({ preventScroll: true });
@@ -122,7 +127,7 @@ function filtroCIE10() {
   const categorias = Object.entries(CATEGORIAS_F)
     .filter(([c]) => !grupo || (c >= grupo.desde && c <= grupo.hasta));
   return detalle('filtro', `Filtro de diagnóstico: ${esDelEstudio(f) ? 'el que pide el estudio (salud mental)' : 'personalizado (solo exploración)'}`,
-    h('p', {}, 'CIE-10 es el catálogo internacional de enfermedades. El estudio pide todo el capítulo V (códigos que empiezan con F). Para entregar, no lo cambie.'),
+    h('p', {}, 'CIE-10 es el catálogo internacional de enfermedades. El estudio pide todo el capítulo V (códigos que empiezan con F).'),
     h('div', { className: 'fila' },
       selector('Capítulo', 'f-capitulo', f.capitulo,
         CAPITULOS.map(c => con(`${c.id} · ${c.desde}-${c.hasta} · ${c.nombre}`, c.id, { capitulo: c.id, bloque: '', categoria: '' })),
@@ -206,8 +211,10 @@ function elegirModo(tipo) {
 }
 
 function anonimizar() {
+  const solicitadoEn = new Date().toISOString(); // momento en que el operador pide la anonimización
   trabajar('Protegiendo los datos y midiendo el resultado…', () => {
     S.r = ejecutar(S.cohorte, S.config, S.datos.nombreOriginal);
+    registro.agregar(entradaDeEjecucion(S.r, { archivo: S.archivo, solicitadoEn }));
     S.historial[S.config.tipo] = S.r;
     S.desactualizado = false;
     S.deshacer = null;
@@ -271,7 +278,6 @@ function panelResultados() {
   const { referencia, propia } = S.historial;
   const resumen = x => [num(x.despues.personas), x.despues.kMin, pct(x.conservadas),
     `${pct(x.consulta.maximo)} / ${pct(x.consulta.promedio)}`, x.despues.homogeneos.length];
-  const perdidas = r.consulta.celdas.filter(c => c.despues === 0);
   return [
     !r.cohorte.esEstudio && aviso('aviso', `Exploración con ${r.cohorte.etiquetaFiltro}: no se puede entregar.`),
     h('div', { className: 'veredicto ' + (r.apto ? 'ok' : 'mal') },
@@ -283,8 +289,7 @@ function panelResultados() {
       indicador('Personas únicas', pct(d.pctUnicas), `Antes: ${pct(a.pctUnicas)}. Meta: 0 %`, d.pctUnicas === 0 && d.personas > 0),
       indicador('Identificadores detectados', d.identificadores.columnas + d.identificadores.texto, `Antes: ${ident(a.identificadores)}`, sinIdent(d)),
       indicador('Personas conservadas', pct(r.conservadas), `${num(d.personas)} de ${num(a.personas)}. Mide utilidad`)),
-    perdidas.length > 0 && aviso('aviso', `Utilidad: ${perdidas.length} combinación(es) de región y sexo desaparecen por completo. Explíquelo en la presentación.`),
-    d.homogeneos.length > 0 && aviso('aviso', `${d.homogeneos.length} grupo(s) comparten un solo diagnóstico: se podría deducir. La configuración Propia los trata.`),
+    d.homogeneos.length > 0 && aviso('aviso', `${d.homogeneos.length} grupo(s) comparten un solo diagnóstico: se podría deducir.`),
     h('h3', {}, 'Antes y después (tabla para el jurado)'),
     tabla(['Indicador', 'Antes', 'Después'], [
       ['Personas', num(a.personas), num(d.personas)],
@@ -382,6 +387,7 @@ async function descargarEntrega(cual) {
       [base + '_acuerdo.txt', acuerdoTexto(r.id, aceptadoEn)]]), 'application/zip']
     : archivos[cual];
   descargar(...elegido);
+  registro.descarga(r.id, elegido[0]);
   return elegido[0];
 }
 
@@ -433,7 +439,7 @@ function panelEntrega() {
     h('ol', {}, ACUERDO.condiciones.map(c => h('li', {}, c))),
     h('label', { className: 'casilla' }, casillaAcuerdo, h('strong', {}, 'He leído y acepto este acuerdo')));
   const vista = [
-    S.r.config.tipo === 'referencia' && aviso('aviso', 'Va a exportar la REFERENCIA. Para entregar se recomienda la configuración Propia.',
+    S.r.config.tipo === 'referencia' && aviso('aviso', 'Va a exportar la configuración REFERENCIA.',
       boton('Cambiar a Propia', () => { elegirModo('propia'); irA('proteccion'); })),
     escribir('Número de equipo (2 dígitos)', 'equipo', null, 'Ej.: 07', { inputMode: 'numeric', maxLength: 2 }),
     seccion('Riesgo que queda y cómo se reduce', 'riesgo', 'okRiesgo',
@@ -490,7 +496,78 @@ function pintarNavegacion() {
   $('reiniciar').disabled = !S.datos;
 }
 
+// ---------- Tablero (página principal) ----------
+const fechaHora = iso => (iso ? new Date(iso).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'medium' }) : '—');
+const enLinea = objeto => Object.entries(objeto).map(([k, n]) => `${k}: ${n}`).join(' · ') || '—';
+
+function verVista(nueva) {
+  if (nueva === 'tablero' && vista !== 'tablero') pintarTablero(); // las descargas no repintan todo
+  vista = nueva;
+  $('tablero').hidden = vista !== 'tablero';
+  $('proceso').hidden = vista !== 'proceso';
+  for (const [id, v] of [['ver-tablero', 'tablero'], ['ver-proceso', 'proceso']]) {
+    if (vista === v) $(id).setAttribute('aria-current', 'page'); else $(id).removeAttribute('aria-current');
+  }
+}
+
+async function borrarRegistro() {
+  if (!await confirmar('Borrar el registro', 'Se borra el historial de ejecuciones y descargas de este navegador. Los archivos ya descargados no cambian.', 'Borrar registro')) return;
+  registro.borrar();
+  pintar();
+}
+
+function detalleEjecucion(e) {
+  return detalle('reg-' + e.id, `Detalle de ${e.id}`,
+    tabla(['Dato', 'Valor'], [
+      ['Petición de anonimización', fechaHora(e.solicitadoEn)],
+      ['Elaboración del dataset', fechaHora(e.elaboradoEn)],
+      ['Archivo de origen', e.archivo || '—'],
+      ['Configuración', e.configuracion],
+      ['Medición de riesgo (k)', `Antes: ${e.kAntes} · Después: ${e.kDespues} · Meta: ${e.kMeta} o más`],
+      ['Personas', `${num(e.personasAntes)} → ${num(e.personasDespues)}`],
+      ['Anonimizaciones aplicadas', `${e.anonimizaciones} columnas · ${num(e.celdasModificadas)} celdas modificadas`],
+      ['Técnicas', enLinea(e.tecnicas)],
+      ['Clasificación de columnas', `${e.columnasClasificadas} de ${e.totalColumnas} clasificadas · ${enLinea(e.clasificaciones)}`],
+      ['Verificaciones', `${e.verificacionesCorrectas} de ${e.verificacionesTotal} correctas`],
+    ]),
+    h('h3', {}, 'Descargas'),
+    e.descargas.length
+      ? tabla(['Archivo', 'Fecha de descarga'], e.descargas.map(d => [d.archivo, fechaHora(d.fecha)]))
+      : h('p', {}, 'Este dataset no se ha descargado.'));
+}
+
+function pintarTablero() {
+  const entradas = registro.lista(), t = resumenRegistro(entradas), u = t.ultima;
+  const ultimaDescarga = e => e.descargas.at(-1);
+  $('tablero').replaceChildren(h('section', { className: 'panel', 'aria-labelledby': 'tablero-h' },
+    h('div', { className: 'cabeza-tablero' },
+      h('div', {}, h('h2', { id: 'tablero-h', tabIndex: -1 }, 'Tablero de ejecuciones'),
+        h('p', { className: 'descripcion' }, 'Registro de cada anonimización: cuándo se pidió, el riesgo (k) medido, qué se transformó y cuándo se descargó.')),
+      boton('Nueva anonimización →', () => irA(siguientePaso()[1]), { className: 'principal', id: 'nueva' })),
+    !registro.persistente && aviso('aviso', 'Este navegador no permite guardar el registro: se perderá al cerrar la página.'),
+    h('div', { className: 'indicadores' },
+      indicador('Ejecuciones registradas', num(t.ejecuciones), `${num(t.aptas)} aptas · ${num(t.ejecuciones - t.aptas)} no aptas`),
+      indicador('k de la última ejecución', u ? u.kDespues : '—', u ? `Antes: ${u.kAntes}. Meta: ${u.kMeta} o más` : 'Sin ejecuciones', u ? u.kDespues >= u.kMeta : undefined),
+      indicador('Anonimizaciones aplicadas', num(t.anonimizaciones), 'Columnas transformadas, sumando todas las ejecuciones'),
+      indicador('Datasets descargados', num(t.descargas), t.ultimaDescarga ? `Última: ${fechaHora(t.ultimaDescarga.fecha)}` : 'Ninguna descarga todavía')),
+    entradas.length === 0
+      ? h('div', { className: 'vacio' }, h('p', {}, 'Todavía no hay ejecuciones registradas. Pulse «Nueva anonimización» para empezar.'))
+      : [h('h3', {}, 'Registro'),
+        tabla(['Petición', 'Dataset elaborado', 'Archivo', 'Configuración', 'Riesgo k (antes → después)', 'Anonimizaciones', 'Clasificación', 'Estado', 'Descarga'],
+          entradas.map(e => [fechaHora(e.solicitadoEn), fechaHora(e.elaboradoEn), e.archivo || '—', e.configuracion,
+            etiqueta(e.kDespues >= e.kMeta ? 'ok' : 'mal', `${e.kAntes} → ${e.kDespues} (meta ${e.kMeta})`),
+            `${e.anonimizaciones} columnas · ${num(e.celdasModificadas)} celdas`,
+            etiqueta(e.columnasClasificadas === e.totalColumnas ? 'ok' : 'aviso', `${e.columnasClasificadas} de ${e.totalColumnas} clasificadas`),
+            etiqueta(e.apto ? 'ok' : 'mal', e.apto ? 'Apto' : 'No apto'),
+            ultimaDescarga(e) ? `${fechaHora(ultimaDescarga(e).fecha)} (${e.descargas.length} archivo(s))` : etiqueta('neutro', 'No descargado')])),
+        h('h3', {}, 'Detalle por ejecución'),
+        entradas.map(detalleEjecucion),
+        h('div', { className: 'acciones' }, boton('Borrar registro', borrarRegistro, { className: 'peligro', id: 'borrar-registro' }))],
+    h('p', { className: 'nota' }, 'El registro se guarda solo en este navegador y no contiene datos de personas: solo fechas, conteos y resultados de cada ejecución.')));
+}
+
 function pintar() {
+  pintarTablero();
   const foco = document.activeElement?.id;
   const montajes = [];
   $('contenido').replaceChildren(...SECCIONES.map(([id, titulo, descripcion, panel]) => {
@@ -508,12 +585,17 @@ function pintar() {
 $('reiniciar').addEventListener('click', empezarDeNuevo);
 $('ayuda-abrir').addEventListener('click', () => $('ayuda').showModal());
 $('ayuda-cerrar').addEventListener('click', () => $('ayuda').close());
-// Atajos: Alt+1…5 salta a cada sección.
+$('ver-tablero').addEventListener('click', () => irA('tablero'));
+$('ver-proceso').addEventListener('click', () => irA(siguientePaso()[1]));
+// Atajos: Alt+0 abre el tablero; Alt+1…5 salta a cada sección.
 globalThis.addEventListener?.('keydown', e => {
+  if (!e.altKey) return;
+  if (e.key === '0') { e.preventDefault(); irA('tablero'); return; }
   const seccion = SECCIONES[Number(e.key) - 1];
-  if (e.altKey && seccion) { e.preventDefault(); irA(seccion[0]); }
+  if (seccion) { e.preventDefault(); irA(seccion[0]); }
 });
 // Evita perder el trabajo al recargar o cerrar por accidente.
 globalThis.addEventListener?.('beforeunload', e => { if (S.datos) { e.preventDefault(); e.returnValue = ''; } });
 
 pintar();
+verVista(vista);
