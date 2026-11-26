@@ -1,0 +1,5 @@
+# Datos del reto: nunca se suben
+*.csv
+*.xlsx
+datos/
+salidas/
