@@ -213,13 +213,13 @@ export function plan(config) {
     edad: ['Generalización', `Rangos de ${config.anchoEdad} años desde 18; 80+; primera atención`, 'grupo_edad'],
     sexo: ['Conservar', '', 'sexo'],
     provincia: config.ubicacion === 'region'
-      ? ['Jerarquía', 'Provincia → región', 'region'] : ['Conservar', '', 'provincia'],
+      ? ['Jerarquía', 'De provincia a región', 'region'] : ['Conservar', '', 'provincia'],
     fecha_ingreso: ['Generalización', config.fecha === 'mes' ? 'AAAA-MM' : 'AAAA', columnaFecha(config)],
     tipo_atencion: ['Conservar', '', 'tipo_atencion'],
     diagnostico_cie10: ['Conservar', '', 'diagnostico_cie10'],
     dias_estancia: config.topeEstancia === null
       ? ['Conservar', '', 'dias_estancia']
-      : ['Agrupar extremos', `${config.topeEstancia} o más → ${config.topeEstancia}+`, 'dias_estancia'],
+      : ['Agrupar extremos', `${config.topeEstancia} días o más se agrupan como ${config.topeEstancia}+`, 'dias_estancia'],
   };
   return COLUMNAS.map(c => {
     const [tecnica, parametro, salida] = p[c.nombre] ?? ['Supresión', '', null];
@@ -367,7 +367,7 @@ export function ejecutar(cohorte, config, nombreOriginal) {
   const paso = (operacion, regla, pa, pd, aa, ad) =>
     ({ operacion, regla, personasAntes: pa, personasDespues: pd, atencionesAntes: aa, atencionesDespues: ad });
   const recorrido = [
-    paso('Transformar columnas', 'Ver detalle por columna',
+    paso('Transformar columnas', 'Técnica definida para cada una de las 28 columnas',
       cohorte.personas, cohorte.personas, cohorte.atenciones, cohorte.atenciones),
     ...supresion.operaciones,
   ];

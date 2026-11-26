@@ -36,7 +36,7 @@ export const COLUMNAS = [
   ['servicio', OTRO, SALUD, 'No', NO],
   ['diagnostico_cie10', OBJ, SALUD, 'Sí', 'Es el objeto del estudio.'],
   ['diagnostico_descripcion', OBJ, SALUD, 'No', NO],
-  ['dias_estancia', OBJ, SALUD, 'Sí', 'Pedida por el estudio; revisar extremos.'],
+  ['dias_estancia', OBJ, SALUD, 'Sí', 'Pedida por el estudio.'],
   ['condicion_egreso', OTRO, SALUD, 'No', NO],
   ['costo_atencion_usd', OTRO, SALUD, 'No', NO],
   ['observacion', 'Texto libre', 'c) Salud y datos de terceros', 'No', 'Puede esconder identificadores.'],
