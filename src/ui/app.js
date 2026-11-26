@@ -7,7 +7,7 @@ import { CAPITULOS, bloquesDe, categoriasDe, FILTRO_ESTUDIO, esDelEstudio, nombr
   periodo, etiquetaPeriodo, anioActual, PERIODO_MINIMO } from '../motor/cie10.js';
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
   BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
-import { crearRegistro, entradaDeEjecucion, resumenRegistro, filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal } from '../motor/registro.js';
+import { crearRegistro, entradaDeEjecucion, resumenRegistro, filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal, ejecucionCompleta } from '../motor/registro.js';
 import { TIPOS_DESTINATARIO, validarDestinatario, etiquetaDestinatario, ejemploDestinatario, normalizarId, formatearId, excedeLongitud } from '../motor/destinatario.js';
 import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar, cerrarNotificaciones } from './dom.js';
 
@@ -770,22 +770,23 @@ function busquedaRegistro(caja, entradas) {
 }
 
 function pintarTablero() {
-  const entradas = registro.lista(), t = resumenRegistro(entradas), u = t.ultima;
+  // Solo las ejecuciones que completaron todos los pasos y se descargaron; el resto queda en el registro sin mostrarse.
+  const entradas = registro.lista().filter(ejecucionCompleta), t = resumenRegistro(entradas), u = t.ultima;
   const caja = h('div', { className: 'resultados-registro' });
   if (entradas.length) pintarResultados(caja, entradas);
   $('tablero').replaceChildren(h('section', { className: 'panel', 'aria-labelledby': 'tablero-h' },
     h('div', { className: 'cabeza-tablero' },
       h('div', {}, h('h2', { id: 'tablero-h', tabIndex: -1 }, 'Tablero de ejecuciones'),
-        h('p', { className: 'descripcion' }, 'Registro de cada anonimización: cuándo se pidió, para quién, el riesgo (k) medido, qué se transformó y cuándo se entregó.')),
+        h('p', { className: 'descripcion' }, 'Peticiones completadas hasta la descarga: cuándo se pidió, para quién, el riesgo (k) medido, qué se transformó y cuándo se entregó.')),
       boton('Nueva anonimización →', () => irA(siguientePaso()[1]), { className: 'principal', id: 'nueva' })),
     !registro.persistente && aviso('aviso', 'Este navegador no permite guardar el registro: se perderá al cerrar la página.'),
     h('div', { className: 'indicadores' },
-      indicador('Ejecuciones registradas', num(t.ejecuciones), `${num(t.aptas)} aptas · ${num(t.ejecuciones - t.aptas)} no aptas`),
+      indicador('Peticiones completadas', num(t.ejecuciones), 'Llegaron hasta la descarga'),
       indicador('k de la última ejecución', u ? u.kDespues : '—', u ? `Antes: ${u.kAntes}. Meta: ${u.kMeta} o más` : 'Sin ejecuciones', u ? u.kDespues >= u.kMeta : undefined),
       indicador('Anonimizaciones aplicadas', num(t.anonimizaciones), 'Columnas transformadas, sumando todas las ejecuciones'),
       indicador('Datasets entregados', num(t.descargas), t.ultimaDescarga ? `Última: ${fechaHora(t.ultimaDescarga.fecha)}` : 'Ninguna entrega todavía')),
     entradas.length === 0
-      ? h('div', { className: 'vacio' }, h('p', {}, 'Todavía no hay ejecuciones registradas. Pulse «Nueva anonimización» para empezar.'))
+      ? h('div', { className: 'vacio' }, h('p', {}, 'Todavía no hay entregas completas. Aquí aparecen las peticiones que llegaron hasta la descarga. Pulse «Nueva anonimización» para empezar.'))
       : [h('h3', {}, 'Registro'), busquedaRegistro(caja, entradas), caja],
     h('p', { className: 'nota' }, 'El registro se guarda solo en este navegador y no contiene datos de personas atendidas: solo fechas, identificadores de destinatarios, conteos, nombres de columnas y resultados de cada ejecución. Por no repudio, la aplicación no permite borrarlo ni modificar ejecuciones registradas.')));
 }

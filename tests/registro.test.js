@@ -157,3 +157,12 @@ test('registro: la petición se registra una sola vez por ejecución', () => {
   assert.deepEqual(e.destinatario, { tipo: 'msp', id: '1720-2015-123456' });
   assert.equal(e.peticionEn, '2026-04-01T10:00:00.000Z');
 });
+
+test('tablero: solo cuenta como completa la ejecución APTA, con petición y descargada', async () => {
+  const { ejecucionCompleta } = await import('../src/motor/registro.js');
+  const base = { apto: true, destinatario: { tipo: 'iess', id: 'IESS-0002' }, descargas: [{ archivo: 'a.zip', fecha: 'x' }] };
+  assert.equal(ejecucionCompleta(base), true);
+  assert.equal(ejecucionCompleta({ ...base, descargas: [] }), false); // no llegó a descargar
+  assert.equal(ejecucionCompleta({ ...base, destinatario: null }), false); // sin petición
+  assert.equal(ejecucionCompleta({ ...base, apto: false }), false);
+});
