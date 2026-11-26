@@ -81,6 +81,7 @@ textarea { width: 100%; min-height: 120px; padding: 8px; border: 1px solid var(-
 textarea[readonly] { background: #eef0f5; color: var(--texto); resize: vertical; }
 dialog { max-width: 560px; width: calc(100% - 32px); border: 2px solid var(--azul); border-radius: 10px; padding: 18px 22px; color: var(--texto); }
 dialog::backdrop { background: rgb(10 20 45 / .55); }
+.acuerdo { border: 2px solid var(--azul); background: #eef3fd; padding: 8px 16px; }
 dt { font-weight: 600; }
 dd { margin: 0 0 8px; }
 

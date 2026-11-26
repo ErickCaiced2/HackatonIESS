@@ -18,12 +18,13 @@ export function configuracionJSON(r) {
   }, null, 2);
 }
 
-export async function trazabilidadJSON(r, huellaCSV, huellaConfig) {
+export async function trazabilidadJSON(r, huellaCSV, huellaConfig, acuerdoEn = null) {
   return JSON.stringify({
     id_ejecucion: r.id, fecha: r.fecha, version: r.version,
     configuracion: r.config.tipo, parametros: r.config,
     sha256_csv: huellaCSV, sha256_configuracion: huellaConfig,
     estado: r.apto ? 'APTO' : 'NO APTO',
+    acuerdo_confidencialidad: acuerdoEn ? { version: ACUERDO.version, casilla_marcada_en: acuerdoEn } : null,
     // Sin k ni conteos de grupos intermedios: solo personas y atenciones.
     operaciones_sobre_filas: r.recorrido.map(o => ({
       operacion: o.operacion, regla: o.regla, vuelta: o.vuelta ?? null,
@@ -43,6 +44,33 @@ const tabla = (cab, filas) =>
 
 export const BORRADOR_RIESGO = 'El riesgo residual no es cero. La métrica k del reto no incluye la fecha de atención, el tipo de atención, el diagnóstico ni los días de estancia: quien conozca esos datos podría acotar a una persona. Medidas: uso exclusivo para este estudio, acceso restringido, prohibido reidentificar o cruzar con otras fuentes y publicar solo resultados agregados. El riesgo se reevalúa al menos una vez al año.';
 export const BORRADOR_TITULAR = 'Se usaron datos de atenciones de salud mental de 2023 a 2025 para estudiar cómo se distribuyen por región y sexo. Se quitaron los datos que le identifican directamente, se redujo el detalle de otros y se retiraron grupos pequeños para dificultar que alguien sepa quién es usted. Ningún método elimina todo el riesgo. Sobre sus datos en el IESS conserva los derechos que reconoce la ley, entre ellos información y acceso.';
+
+// Las cuatro primeras condiciones vienen de la solicitud del investigador; el resto son propuesta del equipo.
+export const ACUERDO = Object.freeze({
+  version: '1.0',
+  condiciones: [
+    'Usaré los archivos únicamente para este estudio.',
+    'No intentaré reidentificar a ninguna persona.',
+    'No cruzaré estos datos con otras fuentes.',
+    'Publicaré los resultados solo de forma agregada.',
+    'No compartiré los archivos con personas no autorizadas.',
+    'Los guardaré en un lugar de acceso restringido y los eliminaré cuando termine el uso autorizado.',
+    'Si sospecho una pérdida, un acceso indebido o una posible reidentificación, dejaré de usarlos y avisaré a quien me los entregó.',
+  ],
+});
+
+export function acuerdoTexto(idEjecucion, aceptadoEn) {
+  return [
+    `ACUERDO DE CONFIDENCIALIDAD Y USO · versión ${ACUERDO.version}`,
+    `Ejecución: ${idEjecucion}`,
+    `Casilla marcada: ${aceptadoEn}`,
+    '',
+    ...ACUERDO.condiciones.map((c, i) => `${i + 1}. ${c}`),
+    '',
+    'Prototipo académico: la casilla no identifica ni autentica a quien la marca y no es una firma.',
+    '',
+  ].join('\r\n');
+}
 
 export function ptaHTML(r, { equipo, riesgo, titular, atacante = '', canal = '' }) {
   const a = r.antes, d = r.despues;

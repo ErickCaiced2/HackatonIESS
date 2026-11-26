@@ -5,7 +5,7 @@ import { aCSV } from '../motor/csv.js';
 import { zip } from '../motor/zip.js';
 import { CAPITULOS, BLOQUES_F, CATEGORIAS_F, FILTRO_ESTUDIO, esDelEstudio, nombreCIE10 } from '../motor/cie10.js';
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
-  BORRADOR_RIESGO, BORRADOR_TITULAR } from '../motor/entregables.js';
+  BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
 import { h, boton, tabla, etiqueta, aviso, detalle, tablaConBusqueda, confirmar } from './dom.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
@@ -16,6 +16,7 @@ const inicial = () => ({
 });
 const ptaInicial = () => ({
   equipo: '', riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR, atacante: '', canal: '', okRiesgo: false, okTitular: false,
+  acuerdoEn: '', // fecha en que se marcó el acuerdo; vacío = no aceptado
 });
 let S = inicial();
 const pta = ptaInicial();
@@ -73,7 +74,7 @@ async function sePuedeDescartar(accion) {
     `Al ${accion} se borran los resultados de esta sesión. Las descargas ya guardadas no cambian.`, 'Descartar y continuar');
 }
 
-function limpiarRevision() { pta.okRiesgo = pta.okTitular = false; }
+function limpiarRevision() { pta.okRiesgo = pta.okTitular = false; pta.acuerdoEn = ''; }
 
 // ---------- 1. Datos ----------
 async function cargar(entrada) {
@@ -345,6 +346,7 @@ const requisitos = () => [
   ['Canal para ejercer derechos, escrito', pta.canal.trim() !== ''],
   ['Texto de riesgo residual revisado', pta.okRiesgo],
   ['Resumen para el titular revisado', pta.okTitular],
+  ['Acuerdo de confidencialidad aceptado', pta.acuerdoEn !== ''],
 ];
 const entregaLista = () => requisitos().every(([, ok]) => ok);
 
@@ -358,16 +360,18 @@ function descargar(nombre, contenido, tipo) {
 }
 
 async function descargarEntrega(cual) {
-  const r = S.r, base = `R2_Equipo${pta.equipo}`;
+  if (!entregaLista()) throw new Error('Faltan requisitos de entrega.');
+  const r = S.r, base = `R2_Equipo${pta.equipo}`, aceptadoEn = pta.acuerdoEn;
   const csv = aCSV(r.columnas, r.salida), config = configuracionJSON(r);
   const archivos = {
     csv: [base + '_salida.csv', csv, 'text/csv;charset=utf-8'],
     config: [base + '_configuracion.json', config, 'application/json'],
-    traza: [base + '_trazabilidad.json', await trazabilidadJSON(r, await sha256(csv), await sha256(config)), 'application/json'],
+    traza: [base + '_trazabilidad.json', await trazabilidadJSON(r, await sha256(csv), await sha256(config), aceptadoEn), 'application/json'],
     pta: [base + '_PTA.html', ptaHTML(r, pta), 'text/html;charset=utf-8'],
   };
   const elegido = cual === 'zip'
-    ? [base + '_paquete.zip', zip(Object.values(archivos).map(([n, c]) => [n, c])), 'application/zip']
+    ? [base + '_paquete.zip', zip([...Object.values(archivos).map(([n, c]) => [n, c]),
+      [base + '_acuerdo.txt', acuerdoTexto(r.id, aceptadoEn)]]), 'application/zip']
     : archivos[cual];
   descargar(...elegido);
   return elegido[0];
@@ -410,6 +414,16 @@ function panelEntrega() {
       h('textarea', { value: pta[clave], readOnly: true, 'aria-label': titulo + ' (solo lectura)' }),
       h('label', { className: 'casilla' }, casillas[ok], ' Leí este texto y el equipo está de acuerdo'));
   };
+  const casillaAcuerdo = h('input', { type: 'checkbox', id: 'acuerdo', checked: pta.acuerdoEn !== '',
+    onchange: e => {
+      pta.acuerdoEn = e.target.checked ? new Date().toISOString() : '';
+      estado.replaceChildren();
+      actualizar();
+    } });
+  const acuerdo = h('fieldset', { className: 'acuerdo' }, h('legend', {}, 'Acuerdo de confidencialidad y uso'),
+    h('p', {}, 'Los archivos derivan de datos de salud. Para descargar cualquiera de ellos, me comprometo a:'),
+    h('ol', {}, ACUERDO.condiciones.map(c => h('li', {}, c))),
+    h('label', { className: 'casilla' }, casillaAcuerdo, h('strong', {}, 'He leído y acepto este acuerdo')));
   const vista = [
     S.r.config.tipo === 'referencia' && aviso('aviso', 'Va a exportar la REFERENCIA. Para entregar se recomienda la configuración Propia.',
       boton('Cambiar a Propia', () => { elegirModo('propia'); irA('proteccion'); })),
@@ -418,6 +432,7 @@ function panelEntrega() {
       escribir('¿Quién podría intentar reidentificar? (supuesto del equipo)', 'atacante', 'okRiesgo', 'Escriba el supuesto del equipo')),
     seccion('Resumen para la persona titular de los datos', 'titular', 'okTitular',
       escribir('Canal para ejercer derechos', 'canal', 'okTitular', 'Canal confirmado con la organización')),
+    acuerdo,
     h('h3', {}, 'Antes de descargar'), lista, motivo,
     h('div', { className: 'acciones' }, botones), estado,
     h('p', { className: 'nota' }, 'Use los datos solo para este estudio, sin reidentificar ni cruzar fuentes. Guarde las descargas fuera de la carpeta del proyecto.'),

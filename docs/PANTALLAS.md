@@ -141,6 +141,7 @@ Paquete (ejecución __)
 Condiciones de uso: solo este estudio · sin reidentificar ni cruzar · publicar agregados
 ```
 - La descarga exige: APTO, V-01 a V-08 correctas, número de equipo y secciones 5 y 6 revisadas.
+- **Acuerdo de confidencialidad:** sin marcar la casilla no se habilita ninguna descarga. Se desmarca al cambiar la configuración o volver a medir. El ZIP incluye el texto del acuerdo y la trazabilidad registra versión y fecha. No identifica ni autentica a quien lo acepta.
 - Los textos de las secciones 5 y 6 son de solo lectura. Las cifras no se editan.
 - El supuesto sobre el atacante y el canal de derechos sí se escriben; cambiarlos desmarca la revisión de su sección.
 - Para el entregable se usa la configuración **propia**; la referencia sirve para la verificación del jurado. La pantalla muestra cuál se está exportando.
