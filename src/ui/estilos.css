@@ -273,3 +273,11 @@ input[aria-invalid="true"] { border-color: var(--mal) !important; }
 .resaltado { border-radius: var(--radio-chico); animation: resaltar 2.4s ease-out; }
 @keyframes resaltar { 0%, 60% { box-shadow: 0 0 0 4px var(--av-f), 0 0 0 6px var(--av); background-color: var(--av-f); } 100% { box-shadow: 0 0 0 0 transparent; background-color: transparent; } }
 @media (prefers-reduced-motion: reduce) { .resaltado { animation: none; box-shadow: 0 0 0 3px var(--av); } }
+
+/* Entrega: apartado de la persona autorizada */
+.apartado-entrega { margin: 4px 0 20px; padding: 16px 18px; border: 1px solid var(--borde); border-left: 3px solid var(--acento); border-radius: var(--radio); background: var(--acento-suave); }
+.apartado-entrega h3 { margin: 0 0 4px; }
+.apartado-entrega .peticion-para { margin: 8px 0 0; }
+.error-campo.aviso { color: var(--av); }
+input[aria-invalid="true"] { border-color: var(--mal) !important; }
+input[data-nivel="aviso"] { border-color: var(--av) !important; }

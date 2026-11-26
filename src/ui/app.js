@@ -8,7 +8,7 @@ import { CAPITULOS, bloquesDe, categoriasDe, FILTRO_ESTUDIO, esDelEstudio, nombr
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
   BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
 import { crearRegistro, entradaDeEjecucion, resumenRegistro, filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal } from '../motor/registro.js';
-import { TIPOS_DESTINATARIO, validarDestinatario, mismoDestinatario, etiquetaDestinatario, ejemploDestinatario, normalizarId } from '../motor/destinatario.js';
+import { TIPOS_DESTINATARIO, validarDestinatario, mismoDestinatario, etiquetaDestinatario, ejemploDestinatario, normalizarId, formatearId, excedeLongitud } from '../motor/destinatario.js';
 import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar, cerrarNotificaciones } from './dom.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
@@ -19,7 +19,7 @@ const inicial = () => ({
   destinatario: { tipo: 'msp', id: '' }, // a quién va dirigida la petición
 });
 const ptaInicial = () => ({
-  equipo: '', riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR, atacante: '', canal: '', okRiesgo: false, okTitular: false,
+  riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR, atacante: '', canal: '', okRiesgo: false, okTitular: false,
   acuerdoEn: '', // fecha en que se marcó el acuerdo; vacío = no aceptado
   entregarA: { tipo: 'msp', id: '' }, // a quién se entregan los archivos; debe ser el destinatario de la petición
 });
@@ -316,20 +316,39 @@ function panelProteccion() {
 // Al escribir no se repinta el panel (así no se pierde el cursor); al confirmar, sí.
 function campoPersona(prefijo, valor, { alEscribir, alConfirmar, extraError = () => '' }) {
   const mensaje = h('p', { className: 'error-campo', id: prefijo + '-error', role: 'status' });
-  const validar = () => {
-    const err = valor.id.trim() ? (validarDestinatario(valor) || extraError(valor)) : '';
-    mensaje.textContent = err ? err + ' ✗' : '';
-    entrada.setAttribute('aria-invalid', String(!!err));
-    return err;
+  // Mientras se escribe solo se avisa si sobran dígitos; al terminar (o al repintar) se valida todo.
+  const validar = completo => {
+    let nivel = '', texto = '';
+    if (valor.id) {
+      if (excedeLongitud(valor)) { nivel = 'aviso'; texto = validarDestinatario(valor) + ' !'; }
+      else if (completo) {
+        const err = validarDestinatario(valor) || extraError(valor);
+        if (err) { nivel = 'mal'; texto = err + ' ✗'; }
+      }
+    }
+    mensaje.className = 'error-campo ' + nivel;
+    mensaje.textContent = texto;
+    entrada.setAttribute('aria-invalid', String(!!nivel));
+    entrada.dataset.nivel = nivel;
   };
   const entrada = h('input', { id: prefijo + '-id', value: valor.id, placeholder: 'Ej.: ' + ejemploDestinatario(valor.tipo),
-    autocomplete: 'off', spellcheck: false, 'aria-describedby': prefijo + '-error',
-    oninput: e => { valor.id = e.target.value; validar(); alEscribir?.(); },
-    onchange: () => { valor.id = normalizarId(valor.id); alConfirmar?.(); } });
-  const tipo = h('select', { id: prefijo + '-tipo', onchange: e => { valor.tipo = e.target.value; alConfirmar?.(); } },
-    Object.entries(TIPOS_DESTINATARIO).map(([v, t]) => h('option', { value: v, selected: v === valor.tipo }, t)));
-  validar();
-  return [h('div', { className: 'fila' }, h('label', {}, 'Tipo', tipo), h('label', {}, 'Identificador', entrada)), mensaje];
+    inputMode: 'numeric', autocomplete: 'off', spellcheck: false, 'aria-describedby': prefijo + '-error',
+    oninput: e => {
+      const borrando = e.inputType?.startsWith('delete');
+      valor.id = formatearId(valor.tipo, e.target.value, { separadorFinal: !borrando });
+      e.target.value = valor.id;
+      validar(false);
+      alEscribir?.();
+    },
+    onchange: () => { valor.id = normalizarId(valor.id); validar(true); alConfirmar?.(); } });
+  const tipo = h('select', { id: prefijo + '-tipo', onchange: e => {
+    valor.tipo = e.target.value;
+    valor.id = formatearId(valor.tipo, valor.id, { separadorFinal: false });
+    alConfirmar?.();
+  } }, Object.entries(TIPOS_DESTINATARIO).map(([v, t]) => h('option', { value: v, selected: v === valor.tipo }, t)));
+  validar(true);
+  return [h('div', { className: 'fila' }, h('label', {}, 'Tipo de personal', tipo),
+    h('label', {}, valor.tipo === 'msp' ? 'Número de licencia del MSP' : 'Identificador institucional del IESS', entrada)), mensaje];
 }
 
 function campoDestinatario() {
@@ -439,13 +458,12 @@ function panelTraza() {
 const requisitos = () => [
   ['La cohorte es la que pide el estudio', !!S.r?.cohorte.esEstudio, ['f-capitulo', 'datos', 'filtro']],
   ['La ejecución es APTA', !!S.r?.apto, ['p-k', 'proteccion', 'parametros']],
-  ['Número de equipo de 2 dígitos', /^\d{2}$/.test(pta.equipo), ['pta-equipo', 'entrega']],
+  ['Se entrega al destinatario de la petición', mismoDestinatario(pta.entregarA, S.r?.destinatario), ['entregar-id', 'entrega']],
   ['Supuesto sobre quién podría reidentificar, escrito', pta.atacante.trim() !== '', ['pta-atacante', 'entrega']],
   ['Canal para ejercer derechos, escrito', pta.canal.trim() !== '', ['pta-canal', 'entrega']],
   ['Texto de riesgo residual revisado', pta.okRiesgo, ['okRiesgo', 'entrega']],
   ['Resumen para el titular revisado', pta.okTitular, ['okTitular', 'entrega']],
   ['Acuerdo de confidencialidad aceptado', pta.acuerdoEn !== '', ['acuerdo', 'entrega']],
-  ['Se entrega al destinatario de la petición', mismoDestinatario(pta.entregarA, S.r?.destinatario), ['entregar-id', 'entrega']],
 ];
 
 // Lleva al campo que corrige un requisito, le da el foco y lo resalta un momento.
@@ -476,7 +494,7 @@ function descargar(nombre, contenido, tipo) {
 
 async function descargarEntrega(cual) {
   if (!entregaLista()) throw new Error('Faltan requisitos de entrega.');
-  const r = S.r, base = `R2_Equipo${pta.equipo}`, aceptadoEn = pta.acuerdoEn;
+  const r = S.r, base = r.id, aceptadoEn = pta.acuerdoEn; // los archivos se nombran con el código de la ejecución
   if (!mismoDestinatario(pta.entregarA, r.destinatario)) throw new Error('Los archivos solo pueden entregarse al destinatario de la petición.');
   const entregadoA = { tipo: pta.entregarA.tipo, id: normalizarId(pta.entregarA.id) };
   const csv = aCSV(r.columnas, r.salida), config = configuracionJSON(r);
@@ -548,14 +566,17 @@ function panelEntrega() {
   const vista = [
     S.r.config.tipo === 'referencia' && aviso('aviso', 'Va a exportar la configuración REFERENCIA.',
       boton('Cambiar a Propia', () => { elegirModo('propia'); irA('proteccion'); })),
-    escribir('Número de equipo (2 dígitos)', 'equipo', null, 'Ej.: 07', { inputMode: 'numeric', maxLength: 2 }),
-    h('fieldset', { className: 'destinatario' }, h('legend', {}, 'Entregar a'),
-      h('p', { className: 'nota' }, `Escriba a quién entrega los archivos. Debe ser el destinatario registrado en la petición: ${etiquetaDestinatario(S.r.destinatario)}.`),
+    h('section', { className: 'apartado-entrega', 'aria-labelledby': 'autorizada-h' },
+      h('h3', { id: 'autorizada-h' }, 'Persona autorizada a recibir los archivos'),
+      h('p', { className: 'nota' }, 'Indique a qué personal se envían o autorizan los archivos: un profesional de salud (número de licencia del MSP) o personal del IESS (identificador institucional). Solo puede ser la persona registrada en la petición.'),
+      h('p', { className: 'peticion-para' }, 'Petición dirigida a: ', h('strong', {}, etiquetaDestinatario(S.r.destinatario))),
       campoPersona('entregar', pta.entregarA, {
         alEscribir: () => actualizar(),
         alConfirmar: () => pintar(),
         extraError: v => (mismoDestinatario(v, S.r.destinatario) ? '' : 'No coincide con el destinatario de la petición: no se puede entregar a otra persona.'),
-      })),
+      }),
+      mismoDestinatario(pta.entregarA, S.r.destinatario) && aviso('ok', `Entrega autorizada a ${etiquetaDestinatario(S.r.destinatario)}.`)),
+    h('h3', {}, 'Textos del protocolo (PTA)'),
     seccion('Riesgo que queda y cómo se reduce', 'riesgo', 'okRiesgo',
       escribir('¿Quién podría intentar reidentificar? (supuesto del equipo)', 'atacante', 'okRiesgo', 'Escriba el supuesto del equipo')),
     seccion('Resumen para la persona titular de los datos', 'titular', 'okTitular',
