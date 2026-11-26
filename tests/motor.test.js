@@ -191,3 +191,29 @@ test('periodo: lo elige el operador, entre 1980 y el año actual, con inicio ≤
   assert.equal(extraerCohorte(datos.filas, f(2023, 2023)).periodo, '2023');
   assert.equal(extraerCohorte(datos.filas, f(2023, 2025)).periodo, '2023-2025');
 });
+
+test('edad: el ancho de los rangos es configurable y 10 y 20 conservan los grupos de referencia', async () => {
+  const { gruposDeEdad, ANCHO_EDAD } = await import('../src/motor/motor.js');
+  assert.deepEqual(gruposDeEdad(20), ['18-39', '40-59', '60-79', '80+']);
+  assert.deepEqual(gruposDeEdad(10), ['18-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']);
+  for (let ancho = ANCHO_EDAD.min; ancho <= ANCHO_EDAD.max; ancho++) {
+    const grupos = gruposDeEdad(ancho);
+    // Cubren 18-79 sin huecos ni solapes, y 80+ va aparte.
+    let siguiente = 18;
+    for (const g of grupos.slice(0, -1)) {
+      const [a, b] = g.split('-').map(Number);
+      assert.equal(a, siguiente, `${ancho}: ${g}`);
+      assert.ok(b >= a);
+      siguiente = b + 1;
+    }
+    assert.equal(siguiente, 80, String(ancho));
+    assert.equal(grupos.at(-1), '80+');
+  }
+  assert.deepEqual(validarConfig({ ...PROPIA, anchoEdad: 15 }), []);
+  assert.equal(validarConfig({ ...PROPIA, anchoEdad: ANCHO_EDAD.min - 1 }).length, 1);
+  assert.equal(validarConfig({ ...PROPIA, anchoEdad: ANCHO_EDAD.max + 1 }).length, 1);
+  assert.equal(validarConfig({ ...PROPIA, anchoEdad: 12.5 }).length, 1);
+  const { cohorte } = preparar();
+  const r = ejecutar(cohorte, { ...PROPIA, anchoEdad: 15 });
+  assert.ok(r.salida.every(f => gruposDeEdad(15).includes(f.grupo_edad)));
+});
