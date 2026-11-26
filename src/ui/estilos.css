@@ -282,6 +282,60 @@ input[aria-invalid="true"] { border-color: var(--mal) !important; }
 input[aria-invalid="true"] { border-color: var(--mal) !important; }
 input[data-nivel="aviso"] { border-color: var(--av) !important; }
 
+/* Sesión y roles */
+.usuario { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; margin-right: 6px; }
+.usuario-nombre { font-weight: 600; font-size: 14px; }
+.usuario small { color: var(--suave); font-size: 12px; }
+.login-contenedor { max-width: 620px; }
+.login .segmentos { display: flex; margin-bottom: 16px; }
+.form-login { display: flex; flex-direction: column; gap: 6px; }
+.form-login > button[type=submit] { align-self: flex-start; margin-top: 8px; }
+.cuentas-prueba { margin-top: 20px; }
+.cuentas-prueba ul { margin: 6px 0; padding-left: 20px; }
+.pantalla-teclado { font-family: ui-monospace, monospace; letter-spacing: .15em; }
+.teclado { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 10px; border: 1px solid var(--borde); border-radius: var(--radio); background: var(--superficie-2); }
+.fila-teclado { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.tecla { min-width: 38px; min-height: 40px; padding: 4px 8px; font-weight: 600; }
+.tecla.ancha { min-width: 76px; font-weight: 500; }
+.tecla[aria-pressed="true"] { background: var(--acento); color: #fff; border-color: var(--acento); }
+.filtro-peticion { padding: 12px 16px; border: 1px solid var(--borde); border-radius: var(--radio); background: var(--superficie-2); }
+.filtro-peticion p { margin: 4px 0; }
+.campo-persona .fila { margin-top: 4px; }
+/* Descargas congeladas hasta firmar */
+.descargas { margin-top: 20px; }
+.descargas.congelado { opacity: .7; padding: 12px 16px; border: 1px dashed var(--borde-campo); border-radius: var(--radio); background: var(--superficie-2); }
+
+/* Gráficos del tablero de TI */
+.graficos { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 16px 0; }
+.graficos > .grafico:first-child { grid-column: 1 / -1; }
+.grafico { margin: 0; padding: 16px; border: 1px solid var(--borde); border-radius: var(--radio); background: var(--superficie); }
+.grafico figcaption { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.grafico figcaption span { color: var(--suave); font-size: 13px; }
+.leyenda { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px; padding: 0; list-style: none; font-size: 13px; color: var(--suave); }
+.leyenda li { display: flex; align-items: center; gap: 6px; }
+.tip-clave { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+.lienzo { position: relative; }
+.grafico-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.grafico-svg .rejilla { stroke: var(--borde); stroke-width: 1; }
+.grafico-svg .eje { fill: var(--suave); font-size: 11px; }
+.grafico-svg .etiqueta-directa { fill: var(--texto); font-size: 11.5px; }
+.grafico-svg .cruz { stroke: var(--borde-campo); stroke-width: 1; stroke-dasharray: 3 3; }
+.grafico-svg rect:focus-visible { outline: none; stroke: var(--acento); stroke-width: 2; }
+.tooltip-grafico { position: absolute; top: 0; transform: translateX(-50%); min-width: 150px; padding: 8px 10px; border: 1px solid var(--borde); border-radius: var(--radio-chico);
+  background: var(--superficie); box-shadow: 0 6px 18px rgb(16 24 40 / .12); font-size: 13px; pointer-events: none; }
+.tip-x { color: var(--suave); margin-bottom: 4px; }
+.tip-fila { display: flex; align-items: center; gap: 6px; }
+.barras { display: flex; flex-direction: column; gap: 8px; }
+.fila-barra { display: grid; grid-template-columns: minmax(120px, 38%) 1fr 36px; align-items: center; gap: 10px; padding: 2px 4px; border-radius: 6px; }
+.fila-barra:hover, .fila-barra:focus-visible { background: var(--superficie-2); }
+.nombre-barra { font-size: 13.5px; }
+.pista-barra { height: 12px; background: var(--superficie-2); border-radius: 0 4px 4px 0; }
+.barra { display: block; height: 100%; border-radius: 0 4px 4px 0; min-width: 2px; }
+.valor-barra { text-align: right; font-variant-numeric: tabular-nums; }
+.tabla-grafico { margin: 10px 0 0; }
+header > div:first-child { min-width: 0; }
+@media (min-width: 821px) { header p { max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } }
+
 /* Revisión de la IA */
 .revision { border: 1px solid var(--borde); border-left: 4px solid var(--acento); border-radius: var(--radio); padding: 4px 14px; margin: 12px 0; }
 .pregunta { border: 1px solid var(--av); background: var(--av-f); }

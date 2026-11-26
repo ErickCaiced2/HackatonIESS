@@ -1,57 +1,37 @@
-// Panel en una sola vista. Los datos viven solo en memoria.
+// Panel según el rol. TI procesa aquí las peticiones del comité; las filas de personas viven solo en memoria.
 import { REFERENCIA, PROPIA } from '../motor/config.js';
 import { extraerCohorte, contadorPorFiltro, medir, ejecutar, plan, validarConfig, ANCHO_EDAD, gruposDeEdad } from '../motor/motor.js';
 import { aCSV } from '../motor/csv.js';
+import { FILTRO_ESTUDIO, nombreCIE10 } from '../motor/cie10.js';
+import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML, BORRADOR_RIESGO, BORRADOR_TITULAR } from '../motor/entregables.js';
+import { entradaDeEjecucion, filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal } from '../motor/registro.js';
+import { etiquetaDestinatario } from '../motor/destinatario.js';
+import { ROLES } from '../motor/usuarios.js';
+import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar } from './dom.js';
+import { registro, peticiones, sesion, log, mostrarError, fechaHora, fechaCorta } from './servicios.js';
+import { describirFiltro } from './campos.js';
+import { guardarArchivo } from './archivos.js';
+import { pintarLogin } from './sesion.js';
+import { pintarComite } from './comite.js';
+import { pintarDoctor, reiniciarDoctor } from './doctor.js';
+import { pintarTiPeticiones, pintarTiLogs, pintarTiTablero } from './ti.js';
 import { analizar, decisionesIniciales, estandarizar } from '../ia/estandarizar.js';
 import { panelRevision } from './revision.js';
-import { zip } from '../motor/zip.js';
-import { CAPITULOS, bloquesDe, categoriasDe, FILTRO_ESTUDIO, esDelEstudio, nombreCIE10,
-  periodo, etiquetaPeriodo, anioActual, PERIODO_MINIMO } from '../motor/cie10.js';
-import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
-  BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
-import { crearRegistro, entradaDeEjecucion, resumenRegistro, filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal } from '../motor/registro.js';
-import { TIPOS_DESTINATARIO, validarDestinatario, etiquetaDestinatario, ejemploDestinatario, normalizarId, formatearId, excedeLongitud } from '../motor/destinatario.js';
-import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar, cerrarNotificaciones } from './dom.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
 const inicial = () => ({
   datos: null, revision: null, archivo: '', cohorte: null, antes: null, ...sinResultados(),
   config: { ...REFERENCIA }, propia: { ...PROPIA }, filtro: { ...FILTRO_ESTUDIO },
   deshacer: null, desactualizado: false,
-  destinatario: { tipo: 'msp', id: '' }, // a quién va dirigida la petición
-});
-// El PTA usa los textos de riesgo y de resumen ya redactados; en Entrega solo se acepta el acuerdo.
-const ptaInicial = () => ({
-  acuerdoEn: '', // fecha en que se marcó el acuerdo; vacío = no aceptado
+  peticion: null, // petición del comité que TI está procesando
 });
 let S = inicial();
-const pta = ptaInicial();
 let pestana = 'recorrido', ocupado = false;
-// La página principal es el tablero; el proceso de 5 pasos se abre desde ahí.
-let vista = 'tablero';
-const registro = crearRegistro();
+let vista = '';
 
 const $ = id => document.getElementById(id);
 
-// ---------- Errores y acciones largas ----------
-// Cada error explica cómo recuperarse.
-const SOLUCIONES = [
-  [/separador|encabezado|Excel|primera fila/, 'Use un archivo de texto con una fila de nombres de columna y una fila por atención.'],
-  [/Faltan columnas|sin clasificar|repetidas/, 'Use un archivo con las 28 columnas del diccionario, sin cambiar sus nombres.'],
-  [/Filas inválidas|comilla/, 'Corrija esas filas en el archivo original y vuelva a cargarlo.'],
-  [/vacía|vacío|no tiene filas/, 'Revise que sea el archivo correcto y que el filtro de diagnóstico sea el del estudio.'],
-  [/provincia/, 'Corrija la columna provincia usando los nombres de las 24 provincias.'],
-  [/digest|subtle/, 'Abra la página con la dirección 127.0.0.1 de Live Server, no con una IP de la red.'],
-];
-
-// Los errores se muestran como aviso rojo arriba a la derecha, con la causa y qué hacer.
-function mostrarError(mensaje) {
-  cerrarNotificaciones('mal');
-  if (!mensaje) return;
-  const solucion = SOLUCIONES.find(([patron]) => patron.test(mensaje))?.[1] ?? 'Revise el último paso e inténtelo de nuevo.';
-  notificar('mal', h('p', {}, h('strong', {}, 'No se pudo completar. '), mensaje), h('p', {}, h('strong', {}, 'Qué hacer: '), solucion));
-}
-
+// ---------- Acciones largas ----------
 const MENSAJE_DESACTUALIZADO = 'Cambió la configuración. Vuelva a proteger los datos para ver resultados y descargar.';
 
 function trabajar(mensaje, fn, destino) {
@@ -62,7 +42,7 @@ function trabajar(mensaje, fn, destino) {
   $('ocupado').hidden = false;
   setTimeout(async () => { // deja pintar el indicador antes del cálculo
     let bien = false;
-    try { await fn(); bien = true; } catch (e) { mostrarError(e.message); }
+    try { await fn(); bien = true; } catch (e) { mostrarError(e.message, 'Procesamiento de la petición'); }
     ocupado = false;
     $('ocupado').hidden = true;
     pintar();
@@ -71,7 +51,8 @@ function trabajar(mensaje, fn, destino) {
 }
 
 function irA(id) {
-  verVista(id === 'tablero' ? 'tablero' : 'proceso');
+  if (VISTAS_ID.has(id)) { verVista(id); $(id)?.querySelector('h2')?.focus(); return; }
+  verVista('proceso');
   const seccion = $(id);
   seccion?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   $(id + '-h')?.focus?.({ preventScroll: true });
@@ -83,7 +64,6 @@ async function sePuedeDescartar(accion) {
     `Al ${accion} se borran los resultados de esta sesión. Las descargas ya guardadas no cambian.`, 'Descartar y continuar');
 }
 
-function limpiarRevision() { pta.acuerdoEn = ''; }
 
 // ---------- 1. Datos ----------
 async function cargar(entrada) {
@@ -96,8 +76,7 @@ async function cargar(entrada) {
     try { texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
     catch { texto = new TextDecoder('windows-1252').decode(bytes); codificacion = 'Windows-1252'; }
     const analisis = analizar(texto.replace(/^\uFEFF/, '')); // si falla, se conserva lo anterior
-    S = { ...inicial(), archivo: archivo.name, revision: { analisis, decisiones: decisionesIniciales(analisis), codificacion } };
-    Object.assign(pta, ptaInicial());
+    S = { ...inicial(), peticion: S.peticion, filtro: { ...S.peticion.filtro }, archivo: archivo.name, revision: { analisis, decisiones: decisionesIniciales(analisis), codificacion } };
     notificar('ok', `La IA propuso qué es cada una de las ${analisis.columnas.length} columnas. Revise y confirme.`);
   }, 'datos');
 }
@@ -108,76 +87,33 @@ function confirmarEstandarizacion() {
     if (!res.datos) throw new Error(res.problemas.join(' '));
     S.datos = res.datos;
     S.revision = null;
+    log('peticion', 'Base de datos cargada', `${S.archivo} · ${num(res.datos.filas.length)} atenciones`, { referencia: S.peticion.id });
     notificar('ok', `Datos estandarizados: ${num(res.datos.filas.length)} atenciones. Siguiente: extraer la cohorte.`);
   }, 'datos');
 }
 
 async function empezarDeNuevo() {
-  if (!await confirmar('Empezar de nuevo', 'Se borra de la memoria el archivo, los resultados y los textos escritos.', 'Borrar todo')) return;
-  S = inicial();
-  Object.assign(pta, ptaInicial());
+  if (!await confirmar('Empezar de nuevo', 'Se borra de la memoria el archivo cargado y los resultados de esta petición.', 'Borrar todo')) return;
+  S = { ...inicial(), peticion: S.peticion, filtro: S.peticion ? { ...S.peticion.filtro } : { ...FILTRO_ESTUDIO } };
   mostrarError('');
   pintar();
-  notificar('ok', 'Se borró de la memoria el archivo, los resultados y los textos escritos.');
+  notificar('ok', 'Se borró de la memoria el archivo cargado y los resultados.');
   irA('datos');
 }
 
-async function cambiarFiltro(nuevo) {
-  if (!await sePuedeDescartar('cambiar el filtro')) { pintar(); return; }
-  Object.assign(S, sinResultados(), { filtro: nuevo, cohorte: null, antes: null, deshacer: null, desactualizado: false });
-  limpiarRevision();
-  pintar();
-  notificar('ok', `Filtro actualizado: ${num(S.contar ? S.contar(nuevo) : 0)} personas con este filtro.`);
-}
-
-function filtroCIE10() {
-  const f = S.filtro;
-  const selector = (texto, id, valor, opciones, alCambiar, desactivado) => h('label', {}, texto,
-    h('select', { id, disabled: desactivado, onchange: e => alCambiar(e.target.value) },
-      opciones.map(([v, t, n]) => h('option', { value: v, selected: v === valor, disabled: n === 0 && v !== valor },
-        `${t} — ${n ? num(n) + ' personas' : 'sin datos'}`))));
-  const esF = f.capitulo === 'V';
-  // Se calcula una vez por archivo; las opciones sin datos no se pueden elegir.
+// El filtro lo define el comité en la petición; TI solo lo aplica.
+function filtroPeticion() {
   S.contar ??= contadorPorFiltro(S.datos.filas);
-  const con = (t, v, filtro) => [v, t, S.contar(filtro)];
-  // Grupo y categoría dependen del capítulo elegido (y la categoría, del grupo).
-  const capitulo = f.capitulo;
-  const categorias = categoriasDe(capitulo, f.bloque, S.contar.codigos);
-  // El periodo se conserva al cambiar capítulo, grupo o categoría.
-  const p = periodo(f);
-  const anios = [];
-  for (let a = anioActual(); a >= PERIODO_MINIMO; a--) anios.push(a);
-  // Solo se ofrecen años válidos: el inicio nunca queda después del fin.
-  const selectorAnio = (texto, id, valor, valido, alCambiar) => h('label', {}, texto,
-    h('select', { id, onchange: e => alCambiar(Number(e.target.value)) },
-      anios.map(a => h('option', { value: a, selected: a === valor, disabled: !valido(a) }, String(a)))));
-  return detalle('filtro', `Filtro de diagnóstico y periodo: ${esDelEstudio(f) ? 'el que pide el estudio (salud mental, 2023-2025)' : 'personalizado (solo exploración)'}`,
-    h('p', {}, 'CIE-10 es el catálogo internacional de enfermedades. El estudio pide todo el capítulo V (códigos que empiezan con F) y atenciones de 2023 a 2025.'),
-    h('div', { className: 'fila' },
-      selector('Capítulo', 'f-capitulo', capitulo,
-        CAPITULOS.map(c => con(`${c.id} · ${c.desde}-${c.hasta} · ${c.nombre}`, c.id, { capitulo: c.id, bloque: '', categoria: '', ...p })),
-        v => cambiarFiltro({ capitulo: v, bloque: '', categoria: '', ...p })),
-      selector('Grupo', 'f-grupo', f.bloque,
-        [con('Todos', '', { capitulo, bloque: '', categoria: '', ...p }),
-          ...bloquesDe(capitulo).map(b => con(`${b.id} · ${b.nombre}`, b.id, { capitulo, bloque: b.id, categoria: '', ...p }))],
-        v => cambiarFiltro({ capitulo, bloque: v, categoria: '', ...p })),
-      selector('Categoría', 'f-categoria', f.categoria,
-        [con('Todas', '', { ...f, categoria: '' }),
-          ...categorias.map(([c, n]) => con(esF ? `${c} · ${n}` : `${c} · grupo: ${n}`, c, { ...f, categoria: c }))],
-        v => cambiarFiltro({ ...f, categoria: v }))),
-    h('fieldset', { className: 'periodo' }, h('legend', {}, `Periodo de atención (fecha de ingreso) · ${num(S.contar(f))} personas`),
-      h('div', { className: 'fila' },
-        selectorAnio('Desde el año', 'f-desde', p.desde, a => a <= p.hasta, v => cambiarFiltro({ ...f, desde: v })),
-        selectorAnio('Hasta el año', 'f-hasta', p.hasta, a => a >= p.desde, v => cambiarFiltro({ ...f, hasta: v }))),
-      h('p', { className: 'nota' }, `Años entre ${PERIODO_MINIMO} y ${anioActual()}. Puede ser un solo año (inicio igual al fin). Incluye del 1 de enero del año de inicio al 31 de diciembre del año de fin.`)),
-    h('p', { className: 'nota' }, `Los conteos ya consideran 18 años o más y atenciones de ${etiquetaPeriodo(f)}. «Sin datos» significa que este archivo no tiene casos que cumplan.`
-      + (esF ? '' : ' Fuera del capítulo V, la lista de categorías muestra los códigos presentes en este archivo.')),
-    !esDelEstudio(f) && boton('Volver al filtro del estudio', () => cambiarFiltro({ ...FILTRO_ESTUDIO })));
+  return h('div', { className: 'filtro-peticion' },
+    h('p', {}, h('strong', {}, `Filtro de la petición ${S.peticion.id}: `), describirFiltro(S.filtro)),
+    h('p', { className: 'nota' }, `En este archivo hay ${num(S.contar(S.filtro))} personas de 18 años o más con este filtro. Lo definió el comité de ética y no se cambia aquí.`));
 }
 
 function panelDatos() {
+  if (!S.peticion) return [bloqueo('Elija una petición en «Peticiones» para procesarla.', 'ti-peticiones')];
   const c = S.cohorte, d = S.datos;
   return [
+    aviso('aviso', `Procesando la petición ${S.peticion.id} para ${etiquetaDestinatario(S.peticion.destinatario)}.`),
     h('label', { className: 'archivo' }, d || S.revision ? 'Cambiar archivo' : 'Elija el archivo de atenciones (CSV, TSV o texto delimitado)',
       h('input', { type: 'file', id: 'archivo', accept: '.csv,.tsv,.txt', onchange: e => cargar(e.target) })),
     h('p', { className: 'nota' }, 'El archivo se procesa en este equipo; la aplicación no lo envía a ningún servidor.'),
@@ -191,17 +127,17 @@ function panelDatos() {
         ? tabla(['Campo', 'Formato aplicado', 'Valores cambiados'], d.estandarizacion.cambios_de_formato.map(x => [x.campo, x.regla, num(x.modificados)]))
         : h('p', {}, 'No fue necesario cambiar ningún valor.'),
       d.estandarizacion.derivados.map(x => h('p', {}, `Se calculó «${x.campo}» desde: ${x.desde}.`))),
-    d && filtroCIE10(),
-    d && !c && boton('Extraer las personas del estudio', () => trabajar('Extrayendo la cohorte y midiendo el riesgo inicial…', () => {
+    d && filtroPeticion(),
+    d && !c && boton('Extraer las personas de la petición', () => trabajar('Extrayendo la cohorte y midiendo el riesgo inicial…', () => {
       const cohorte = extraerCohorte(S.datos.filas, S.filtro);
       if (!cohorte.atenciones) throw new Error('La cohorte está vacía.');
+      cohorte.esEstudio = true; // usa exactamente el filtro de la petición
       S.cohorte = cohorte;
       S.antes = medir(cohorte.filas, 'cedula');
       notificar('ok', `Cohorte lista: ${num(cohorte.personas)} personas y ${num(cohorte.atenciones)} atenciones.`);
     }), { className: 'principal' }),
-    c && !c.esEstudio && aviso('aviso', 'Modo exploración: no es la cohorte del estudio. Puede medirla, pero no entregarla.'),
     c && h('div', { className: 'indicadores' },
-      indicador('Personas seleccionadas', num(c.personas), 'Es la «cohorte» del estudio'),
+      indicador('Personas seleccionadas', num(c.personas), 'Es la «cohorte» de la petición'),
       indicador('Atenciones', num(c.atenciones), 'Una persona puede tener varias'),
       indicador('Grupo más pequeño (k)', S.antes.kMin, 'Antes de proteger. Meta: 5 o más', S.antes.kMin >= 5),
       indicador('Personas únicas', pct(S.antes.pctUnicas), 'Se distinguen de todas las demás', S.antes.pctUnicas === 0)),
@@ -235,7 +171,6 @@ function cambiar(clave, valor) {
   S.desactualizado = !!(S.r || S.desactualizado);
   S.r = null;
   delete S.historial.propia;
-  limpiarRevision();
   pintar();
   if (S.desactualizado) notificar('aviso', MENSAJE_DESACTUALIZADO);
   else notificar('ok', 'Configuración actualizada.');
@@ -247,7 +182,6 @@ function elegirModo(tipo) {
   S.r = S.historial[tipo] ?? null;
   S.desactualizado = false;
   S.deshacer = null;
-  limpiarRevision();
   pintar();
   notificar('ok', `Configuración ${tipo === 'referencia' ? 'Referencia' : 'Propia'} seleccionada.`);
 }
@@ -257,19 +191,20 @@ function anonimizar() {
   trabajar('Protegiendo los datos y midiendo el resultado…', () => {
     S.r = ejecutar(S.cohorte, S.config, S.datos.nombreOriginal);
     S.r.estandarizacion = S.datos.estandarizacion;
-    S.r.destinatario = null; // se registra en el paso Petición
+    S.r.destinatario = null; // se registra al publicar
+    S.r.peticionId = S.peticion.id;
     registro.agregar(entradaDeEjecucion(S.r, { archivo: S.archivo, solicitadoEn }));
+    log('peticion', 'Protección ejecutada', `${S.r.id} · configuración ${S.config.tipo} · ${S.r.apto ? 'APTA' : 'NO APTA'}`, { referencia: S.peticion.id });
     S.historial[S.config.tipo] = S.r;
     S.desactualizado = false;
     S.deshacer = null;
-    limpiarRevision();
     if (S.r.apto) notificar('ok', 'La ejecución es APTA. Los resultados están listos.');
     else notificar('mal', 'La ejecución NO es apta: ' + S.r.verificaciones.filter(v => !v.ok).map(v => v.id).join(', ') + '.');
   }, 'resultados');
 }
 
 function panelProteccion() {
-  if (!S.cohorte) return [bloqueo('Primero cargue un archivo y extraiga las personas del estudio.', 'datos')];
+  if (!S.cohorte) return [bloqueo('Primero cargue la base y extraiga las personas de la petición.', 'datos')];
   const c = S.config, fija = c.tipo === 'referencia';
   const opcion = (tipo, titulo, texto) => h('label', { className: 'opcion' + (c.tipo === tipo ? ' elegida' : '') },
     h('input', { type: 'radio', name: 'modo', id: 'modo-' + tipo, checked: c.tipo === tipo, onchange: () => elegirModo(tipo) }),
@@ -312,7 +247,7 @@ function panelProteccion() {
       !fija && boton('Restablecer valores recomendados', () => {
         guardarParaDeshacer();
         S.config = { ...PROPIA }; S.propia = { ...PROPIA }; S.r = null; delete S.historial.propia;
-        S.desactualizado = true; limpiarRevision(); pintar();
+        S.desactualizado = true; pintar();
         notificar('aviso', MENSAJE_DESACTUALIZADO);
       })),
     detalle('variables', 'Ver qué pasa con cada una de las 28 columnas',
@@ -323,52 +258,11 @@ function panelProteccion() {
       boton(S.r ? 'Volver a proteger y medir' : 'Proteger los datos y medir', anonimizar,
         { className: 'principal', id: 'anonimizar', disabled: errores.length > 0 }),
       S.deshacer && boton('Deshacer el último cambio ↶', () => {
-        Object.assign(S, S.deshacer, { deshacer: null });
-        limpiarRevision(); pintar();
+        Object.assign(S, S.deshacer, { deshacer: null }); pintar();
         notificar('ok', 'Se deshizo el último cambio.');
       })),
   ];
 }
-
-// Selector de tipo + identificador de una persona, con validación en línea.
-// Al escribir no se repinta el panel (así no se pierde el cursor); al confirmar, sí.
-function campoPersona(prefijo, valor, { alEscribir, alConfirmar, extraError = () => '' }) {
-  const mensaje = h('p', { className: 'error-campo', id: prefijo + '-error', role: 'status' });
-  // Mientras se escribe solo se avisa si sobran dígitos; al terminar (o al repintar) se valida todo.
-  const validar = completo => {
-    let nivel = '', texto = '';
-    if (valor.id) {
-      if (excedeLongitud(valor)) { nivel = 'aviso'; texto = validarDestinatario(valor) + ' !'; }
-      else if (completo) {
-        const err = validarDestinatario(valor) || extraError(valor);
-        if (err) { nivel = 'mal'; texto = err + ' ✗'; }
-      }
-    }
-    mensaje.className = 'error-campo ' + nivel;
-    mensaje.textContent = texto;
-    entrada.setAttribute('aria-invalid', String(!!nivel));
-    entrada.dataset.nivel = nivel;
-  };
-  const entrada = h('input', { id: prefijo + '-id', value: valor.id, placeholder: 'Ej.: ' + ejemploDestinatario(valor.tipo),
-    inputMode: 'numeric', autocomplete: 'off', spellcheck: false, 'aria-describedby': prefijo + '-error',
-    oninput: e => {
-      const borrando = e.inputType?.startsWith('delete');
-      valor.id = formatearId(valor.tipo, e.target.value, { separadorFinal: !borrando });
-      e.target.value = valor.id;
-      validar(false);
-      alEscribir?.();
-    },
-    onchange: () => { valor.id = normalizarId(valor.id); validar(true); alConfirmar?.(); } });
-  const tipo = h('select', { id: prefijo + '-tipo', onchange: e => {
-    valor.tipo = e.target.value;
-    valor.id = formatearId(valor.tipo, valor.id, { separadorFinal: false });
-    alConfirmar?.();
-  } }, Object.entries(TIPOS_DESTINATARIO).map(([v, t]) => h('option', { value: v, selected: v === valor.tipo }, t)));
-  validar(true);
-  return [h('div', { className: 'fila' }, h('label', {}, 'Tipo de personal', tipo),
-    h('label', {}, valor.tipo === 'msp' ? 'Número de licencia del MSP' : 'Identificador institucional del IESS', entrada)), mensaje];
-}
-
 
 // ---------- 3. Resultados ----------
 function panelResultados() {
@@ -455,51 +349,13 @@ function panelTraza() {
   ];
 }
 
-// ---------- 5. Petición ----------
-// A quién va dirigido el entregable. Se registra una sola vez por ejecución (no repudio).
-function registrarPeticion() {
-  const err = validarDestinatario(S.destinatario);
-  if (err) { mostrarError('Petición: ' + err); return; }
-  const destinatario = { tipo: S.destinatario.tipo, id: normalizarId(S.destinatario.id) };
-  const fecha = new Date().toISOString();
-  try {
-    if (!registro.peticion(S.r.id, destinatario, fecha)) throw new Error('Esta ejecución ya tiene una petición registrada.');
-  } catch (e) { mostrarError(e.message); return; }
-  S.r.destinatario = destinatario;
-  S.r.peticionEn = fecha;
-  limpiarRevision();
-  pintar();
-  notificar('ok', `Petición registrada para ${etiquetaDestinatario(destinatario)}.`);
-  irA('entrega');
-}
-
-function panelPeticion() {
-  if (!S.r) return [bloqueo('Primero proteja los datos: la petición se registra sobre una ejecución.', 'proteccion')];
-  const r = S.r;
-  if (r.destinatario) {
-    return [
-      aviso('ok', `Petición registrada para ${etiquetaDestinatario(r.destinatario)}. Fecha: ${fechaHora(r.peticionEn)}`),
-      h('p', { className: 'nota' }, 'Por no repudio, la petición de esta ejecución no se puede cambiar. Para dirigirla a otra persona, vuelva a proteger los datos: se crea una ejecución nueva.'),
-    ];
-  }
-  const valido = () => !validarDestinatario(S.destinatario);
-  const registrar = boton('Registrar petición', registrarPeticion, { className: 'principal', id: 'registrar-peticion', disabled: !valido() });
-  return [
-    h('p', {}, 'Indique el personal que desea el entregable: un profesional de salud (número de licencia del MSP) o personal del IESS (identificador institucional, ej.: IESS-0002). Solo esa persona podrá recibir los archivos.'),
-    campoPersona('dest', S.destinatario, { alEscribir: () => { registrar.disabled = !valido(); }, alConfirmar: () => pintar() }),
-    h('div', { className: 'acciones' }, registrar),
-    h('p', { className: 'nota' }, `Ejecución ${r.id}. Una vez registrada, la petición no se puede cambiar.`),
-  ];
-}
-
-// ---------- 6. Entrega ----------
-// [texto, cumple, campo que lo corrige: id, sección y desplegable que hay que abrir]
+// ---------- 5. Publicar ----------
+// TI publica el entregable al destinatario de la petición. El doctor firma y descarga desde su cuenta.
 const requisitos = () => [
-  ['La cohorte es la que pide el estudio', !!S.r?.cohorte.esEstudio, ['f-capitulo', 'datos', 'filtro']],
+  ['La cohorte usa el filtro de la petición', !!S.r?.cohorte.esEstudio, ['datos', 'datos']],
   ['La ejecución es APTA', !!S.r?.apto, ['p-k', 'proteccion', 'parametros']],
-  ['Petición registrada con su destinatario', !!S.r?.destinatario, ['dest-id', 'peticion']],
-  ['Acuerdo de confidencialidad aceptado', pta.acuerdoEn !== '', ['acuerdo', 'entrega']],
 ];
+const listoParaPublicar = () => requisitos().every(([, ok]) => ok);
 
 // Lleva al campo que corrige un requisito, le da el foco y lo resalta un momento.
 function irACampo([id, seccion, desplegable]) {
@@ -512,88 +368,50 @@ function irACampo([id, seccion, desplegable]) {
   campo.focus({ preventScroll: true });
   const caja = campo.closest('label, .campo, fieldset') ?? campo;
   caja.classList.remove('resaltado');
-  void caja.offsetWidth; // reinicia la animación si se pulsa dos veces
+  void caja.offsetWidth;
   caja.classList.add('resaltado');
   setTimeout(() => caja.classList.remove('resaltado'), 2500);
 }
-const entregaLista = () => requisitos().every(([, ok]) => ok);
 
-function descargar(nombre, contenido, tipo) {
-  const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
-  const enlace = h('a', { href: url, download: nombre });
-  document.body.append(enlace);
-  enlace.click();
-  enlace.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+async function publicar() {
+  if (!listoParaPublicar()) return;
+  const r = S.r, p = S.peticion, u = sesion.actual();
+  try {
+    const csv = aCSV(r.columnas, r.salida), config = configuracionJSON(r);
+    r.destinatario = { ...p.destinatario };
+    const traza = await trazabilidadJSON(r, await sha256(csv), await sha256(config));
+    // Se guardan los archivos; el acuerdo y «entregado a» se agregan cuando el destinatario firma y descarga.
+    await guardarArchivo('entrega:' + p.id, { base: r.id, ejecucionId: r.id, csv, config, traza,
+      pta: ptaHTML(r, { riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR }) });
+    registro.peticion(r.id, p.destinatario, new Date().toISOString());
+    peticiones.publicar(p.id, { id: r.id, fecha: r.fecha, configuracion: r.config.tipo, kDespues: r.despues.kMin, personas: r.despues.personas }, u.usuario);
+    log('peticion', 'Publicada al destinatario', `${r.id} para ${etiquetaDestinatario(p.destinatario)}`, { referencia: p.id });
+    notificar('ok', `Petición ${p.id} publicada. ${etiquetaDestinatario(p.destinatario)} ya puede firmar y descargar.`);
+    S = inicial();
+    pintar();
+    verVista('ti-peticiones');
+  } catch (e) { mostrarError(e.message, 'Publicar petición'); }
 }
 
-async function descargarEntrega(cual) {
-  if (!entregaLista()) throw new Error('Faltan requisitos de entrega.');
-  const r = S.r, base = r.id, aceptadoEn = pta.acuerdoEn; // los archivos se nombran con el código de la ejecución
-  if (!r.destinatario) throw new Error('Registre primero a quién va dirigida la petición.');
-  const entregadoA = { ...r.destinatario }; // solo se entrega a la persona de la petición
-  const csv = aCSV(r.columnas, r.salida), config = configuracionJSON(r);
-  const archivos = {
-    csv: [base + '_salida.csv', csv, 'text/csv;charset=utf-8'],
-    config: [base + '_configuracion.json', config, 'application/json'],
-    traza: [base + '_trazabilidad.json', await trazabilidadJSON(r, await sha256(csv), await sha256(config), aceptadoEn, entregadoA), 'application/json'],
-    pta: [base + '_PTA.html', ptaHTML(r, { riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR }), 'text/html;charset=utf-8'],
-  };
-  const elegido = cual === 'zip'
-    ? [base + '_paquete.zip', zip([...Object.values(archivos).map(([n, c]) => [n, c]),
-      [base + '_acuerdo.txt', acuerdoTexto(r.id, aceptadoEn, r.destinatario)]]), 'application/zip']
-    : archivos[cual];
-  registro.descarga(r.id, elegido[0], new Date().toISOString(), entregadoA); // se registra antes de entregar
-  descargar(...elegido);
-  return elegido[0];
-}
-
-function panelEntrega() {
-  if (!S.r) return [bloqueo('Para entregar primero necesita un resultado vigente.', 'proteccion')];
-  const botones = [['zip', 'Descargar todo (ZIP)'], ['csv', 'Solo CSV'], ['config', 'Solo configuración'], ['traza', 'Solo trazabilidad'], ['pta', 'Solo PTA']]
-    .map(([id, texto]) => boton(texto, async () => {
-      if (!entregaLista()) return;
-      mostrarError('');
-      try {
-        const nombre = await descargarEntrega(id);
-        notificar('ok', `Se envió a descargas: ${nombre}. Entregado a ${etiquetaDestinatario(S.r.destinatario)}.`);
-      } catch (e) { mostrarError(e.message); }
-    }, { id: 'bajar-' + id, className: id === 'zip' ? 'principal' : 'secundario' }));
-  const lista = h('ul', { className: 'requisitos' });
-  const motivo = h('p', {});
-  const estado = h('div', { role: 'status' });
-  const actualizar = () => {
-    const faltan = requisitos().filter(([, ok]) => !ok).length;
-    botones.forEach(b => { b.disabled = faltan > 0; });
-    lista.replaceChildren(...requisitos().map(([texto, ok, destino]) => h('li', {}, ok
-      ? [etiqueta('ok', 'Listo'), ' ', texto]
-      : h('button', { type: 'button', className: 'requisito-pendiente', onclick: () => irACampo(destino), 'aria-label': `${texto}: falta. Ir al campo` },
-        etiqueta('mal', 'Falta'), ' ', h('span', {}, texto), h('span', { className: 'ir', 'aria-hidden': 'true' }, ' Ir al campo →')))));
-    motivo.textContent = faltan ? `Faltan ${faltan} requisito(s) para habilitar la descarga. Pulse uno para ir al campo.` : 'Todo listo. Para obtener el PDF, abra el PTA y use Imprimir.';
-    pintarNavegacion();
-  };
-  const casillaAcuerdo = h('input', { type: 'checkbox', id: 'acuerdo', checked: pta.acuerdoEn !== '',
-    onchange: e => {
-      pta.acuerdoEn = e.target.checked ? new Date().toISOString() : '';
-      estado.replaceChildren();
-      actualizar();
-    } });
-  const acuerdo = h('fieldset', { className: 'acuerdo' }, h('legend', {}, 'Acuerdo de confidencialidad y uso'),
-    h('p', {}, 'Los archivos se entregan a: ', h('strong', {}, S.r.destinatario ? etiquetaDestinatario(S.r.destinatario) : 'petición sin registrar')),
-    h('p', {}, 'Los archivos derivan de datos de salud. Para descargar cualquiera de ellos, me comprometo a:'),
-    h('ol', {}, ACUERDO.condiciones.map(c => h('li', {}, c))),
-    h('label', { className: 'casilla' }, casillaAcuerdo, h('strong', {}, 'He leído y acepto este acuerdo')));
-  const vista = [
-    S.r.config.tipo === 'referencia' && aviso('aviso', 'Va a exportar la configuración REFERENCIA.',
-      boton('Cambiar a Propia', () => { elegirModo('propia'); irA('proteccion'); })),
-    acuerdo,
-    h('h3', {}, 'Antes de descargar'), lista, motivo,
-    h('div', { className: 'acciones' }, botones), estado,
-    h('p', { className: 'nota' }, 'Use los datos solo para este estudio, sin reidentificar ni cruzar fuentes. Guarde las descargas fuera de la carpeta del proyecto.'),
+function panelPublicar() {
+  if (!S.r) return [bloqueo('Para publicar primero necesita un resultado vigente.', 'proteccion')];
+  const p = S.peticion;
+  const lista = h('ul', { className: 'requisitos' }, requisitos().map(([texto, ok, destino]) => h('li', {}, ok
+    ? [etiqueta('ok', 'Listo'), ' ', texto]
+    : h('button', { type: 'button', className: 'requisito-pendiente', onclick: () => irACampo(destino), 'aria-label': `${texto}: falta. Ir al campo` },
+      etiqueta('mal', 'Falta'), ' ', h('span', {}, texto), h('span', { className: 'ir', 'aria-hidden': 'true' }, ' Ir al campo →')))));
+  return [
+    tablaAdaptable(['Dato', 'Valor'], [
+      ['Petición', p.id],
+      ['Destinatario', etiquetaDestinatario(p.destinatario)],
+      ['Datos pedidos', describirFiltro(p.filtro)],
+      ['Ejecución', `${S.r.id} · configuración ${S.r.config.tipo}`],
+    ]),
+    h('h3', {}, 'Antes de publicar'), lista,
+    h('div', { className: 'acciones' },
+      boton('Publicar al destinatario', publicar, { className: 'principal', id: 'publicar-boton', disabled: !listoParaPublicar() })),
+    h('p', { className: 'nota' }, 'Al publicar, solo el destinatario puede ver la petición, firmar el acuerdo de confidencialidad y descargar los archivos. Los datos de personas no salen de este navegador.'),
   ];
-  botones.forEach(b => { b.disabled = !entregaLista(); });
-  vista.alMontar = actualizar;
-  return vista;
 }
 
 // ---------- Estructura del panel ----------
@@ -601,7 +419,7 @@ const bloqueo = (mensaje, destino) => h('div', { className: 'vacio' }, h('p', {}
   boton('Ir al paso necesario', () => irA(destino)));
 
 const SECCIONES = [
-  ['datos', '1. Datos', 'Cargue el archivo y seleccione a las personas del estudio.', panelDatos,
+  ['datos', '1. Datos', 'Cargue la base de datos de la petición y extraiga las personas que pide.', panelDatos,
     () => (S.cohorte ? ['ok', 'Listo'] : S.datos ? ['aviso', 'Falta extraer'] : S.revision ? ['aviso', 'Revisar columnas'] : ['neutro', 'Por hacer'])],
   ['proteccion', '2. Protección', 'Decida cómo ocultar la identidad de las personas.', panelProteccion,
     () => (S.r ? ['ok', 'Listo'] : !S.cohorte ? ['neutro', 'Bloqueado'] : S.desactualizado ? ['aviso', 'Volver a medir'] : ['aviso', 'Por hacer'])],
@@ -609,22 +427,18 @@ const SECCIONES = [
     () => (S.r ? (S.r.apto ? ['ok', 'Apto'] : ['mal', 'No apto']) : ['neutro', 'Pendiente'])],
   ['trazabilidad', '4. Trazabilidad', 'Qué se hizo, en qué orden y con qué resultado.', panelTraza,
     () => (S.r ? ['ok', 'Disponible'] : ['neutro', 'Pendiente'])],
-  ['peticion', '5. Petición', 'Registre a qué personal va dirigido el entregable.', panelPeticion,
-    () => (!S.r ? ['neutro', 'Bloqueado'] : S.r.destinatario ? ['ok', 'Registrada'] : ['aviso', 'Por hacer'])],
-  ['entrega', '6. Entrega', 'Acepte el acuerdo de confidencialidad y descargue los archivos.', panelEntrega,
-    () => (!S.r ? ['neutro', 'Bloqueado'] : entregaLista() ? ['ok', 'Lista'] : ['aviso', 'Faltan datos'])],
+  ['publicar', '5. Publicar', 'Publique el entregable al destinatario de la petición.', panelPublicar,
+    () => (!S.r ? ['neutro', 'Bloqueado'] : listoParaPublicar() ? ['ok', 'Lista'] : ['aviso', 'Faltan datos'])],
 ];
 
 function siguientePaso() {
+  if (!S.peticion) return ['Elija una petición para procesar.', 'ti-peticiones'];
   if (S.revision) return ['Revise lo que propuso la IA y confirme.', 'datos'];
-  if (!S.datos) return ['Elija el archivo CSV.', 'datos'];
-  if (!S.cohorte) return ['Extraiga las personas del estudio.', 'datos'];
-  if (!S.r) return ['Proteja los datos y mida el resultado.', 'proteccion'];
+  if (!S.datos) return ['Cargue la base de datos (CSV) de la petición.', 'datos'];
+  if (!S.cohorte) return ['Extraiga las personas de la petición.', 'datos'];
+  if (!S.r) return ['Configure la protección y mida el resultado.', 'proteccion'];
   if (!S.r.apto) return ['Ajuste la protección: el resultado no es apto.', 'proteccion'];
-  if (!S.r.cohorte.esEstudio) return ['Para entregar, vuelva al filtro del estudio.', 'datos'];
-  if (!S.r.destinatario) return ['Registre a qué personal va dirigida la petición.', 'peticion'];
-  if (!entregaLista()) return ['Acepte el acuerdo de confidencialidad para descargar.', 'entrega'];
-  return ['Todo listo: descargue el paquete.', 'entrega'];
+  return ['Revise resultados y trazabilidad, y publique al destinatario.', 'publicar'];
 }
 
 function pintarNavegacion() {
@@ -640,19 +454,57 @@ function pintarNavegacion() {
   $('reiniciar').disabled = !S.datos && !S.revision;
 }
 
-// ---------- Tablero (página principal) ----------
-const fechaHora = iso => (iso ? new Date(iso).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'medium' }) : '—');
+// ---------- Vistas por rol ----------
 const diaLocalHoy = () => diaLocal(new Date().toISOString());
-const fechaCorta = iso => (iso ? new Date(iso).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : '—');
+const VISTAS = {
+  ti: [['tablero', 'Tablero'], ['ti-peticiones', 'Peticiones'], ['proceso', 'Procesamiento'], ['ti-logs', 'Logs']],
+  ce: [['ce-peticiones', 'Peticiones']],
+  receptor: [['doc-peticiones', 'Mis peticiones']],
+};
+const VISTAS_ID = new Set(['login', 'tablero', 'ti-peticiones', 'proceso', 'ti-logs', 'ce-peticiones', 'doc-peticiones']);
 
 function verVista(nueva) {
-  if (nueva === 'tablero' && vista !== 'tablero') pintarTablero(); // las descargas no repintan todo
+  if (vista === nueva) return;
   vista = nueva;
-  $('tablero').hidden = vista !== 'tablero';
-  $('proceso').hidden = vista !== 'proceso';
-  for (const [id, v] of [['ver-tablero', 'tablero'], ['ver-proceso', 'proceso']]) {
-    if (vista === v) $(id).setAttribute('aria-current', 'page'); else $(id).removeAttribute('aria-current');
-  }
+  pintar();
+}
+
+// TI empieza (o retoma) el procesamiento de una petición del comité.
+async function procesarPeticion(id, continuar = false) {
+  if (S.peticion?.id !== id && !await sePuedeDescartar('procesar otra petición')) return;
+  try {
+    let p = peticiones.obtener(id);
+    if (p.estado === 'enviada') {
+      p = peticiones.tomar(id, sesion.actual().usuario);
+      log('peticion', 'Tomada por TI para procesar', describirFiltro(p.filtro), { referencia: id });
+    }
+    if (S.peticion?.id !== id) S = { ...inicial(), peticion: p, filtro: { ...p.filtro } };
+    else S.peticion = p;
+    vista = 'proceso';
+    pintar();
+    if (!continuar) notificar('ok', `Procesando ${id}. Cargue la base de datos (CSV).`);
+    irA('datos');
+  } catch (e) { mostrarError(e.message, 'Procesar petición'); }
+}
+
+function pintarCabecera(u) {
+  $('vistas').replaceChildren(...(u ? VISTAS[u.rol] : []).map(([id, texto]) =>
+    h('button', { type: 'button', id: 'ver-' + id, ...(vista === id ? { 'aria-current': 'page' } : {}), onclick: () => irA(id) }, texto)));
+  $('vistas').hidden = !u;
+  $('usuario').replaceChildren(...(u ? [h('span', { className: 'usuario-nombre', title: ROLES[u.rol] }, u.nombre), h('small', {}, u.usuario)] : []));
+  $('usuario').hidden = !u;
+  $('cerrar-sesion').hidden = !u;
+  $('reiniciar').hidden = !(u?.rol === 'ti' && vista === 'proceso');
+}
+
+async function cerrarSesion() {
+  if (!await sePuedeDescartar('cerrar la sesión')) return;
+  log('sesion', 'Cierre de sesión', '');
+  sesion.cerrar();
+  S = inicial();
+  reiniciarDoctor();
+  vista = 'login';
+  pintar();
 }
 
 function resumenEjecucion(e) {
@@ -792,29 +644,32 @@ function busquedaRegistro(caja, entradas) {
   return bloque;
 }
 
-function pintarTablero() {
-  const entradas = registro.lista(), t = resumenRegistro(entradas), u = t.ultima;
-  const caja = h('div', { className: 'resultados-registro' });
-  if (entradas.length) pintarResultados(caja, entradas);
-  $('tablero').replaceChildren(h('section', { className: 'panel', 'aria-labelledby': 'tablero-h' },
-    h('div', { className: 'cabeza-tablero' },
-      h('div', {}, h('h2', { id: 'tablero-h', tabIndex: -1 }, 'Tablero de ejecuciones'),
-        h('p', { className: 'descripcion' }, 'Registro de cada anonimización: cuándo se pidió, para quién, el riesgo (k) medido, qué se transformó y cuándo se entregó.')),
-      boton('Nueva anonimización →', () => irA(siguientePaso()[1]), { className: 'principal', id: 'nueva' })),
-    !registro.persistente && aviso('aviso', 'Este navegador no permite guardar el registro: se perderá al cerrar la página.'),
-    h('div', { className: 'indicadores' },
-      indicador('Ejecuciones registradas', num(t.ejecuciones), `${num(t.aptas)} aptas · ${num(t.ejecuciones - t.aptas)} no aptas`),
-      indicador('k de la última ejecución', u ? u.kDespues : '—', u ? `Antes: ${u.kAntes}. Meta: ${u.kMeta} o más` : 'Sin ejecuciones', u ? u.kDespues >= u.kMeta : undefined),
-      indicador('Anonimizaciones aplicadas', num(t.anonimizaciones), 'Columnas transformadas, sumando todas las ejecuciones'),
-      indicador('Datasets entregados', num(t.descargas), t.ultimaDescarga ? `Última: ${fechaHora(t.ultimaDescarga.fecha)}` : 'Ninguna entrega todavía')),
-    entradas.length === 0
-      ? h('div', { className: 'vacio' }, h('p', {}, 'Todavía no hay ejecuciones registradas. Pulse «Nueva anonimización» para empezar.'))
-      : [h('h3', {}, 'Registro'), busquedaRegistro(caja, entradas), caja],
-    h('p', { className: 'nota' }, 'El registro se guarda solo en este navegador y no contiene datos de personas atendidas: solo fechas, identificadores de destinatarios, conteos, nombres de columnas y resultados de cada ejecución. Por no repudio, la aplicación no permite borrarlo ni modificar ejecuciones registradas.')));
+// Tabla de entregas completadas (con búsqueda y paginación) dentro del tablero de TI.
+function pintarRegistro(caja, entradas) {
+  const resultados = h('div', { className: 'resultados-registro' });
+  if (entradas.length) pintarResultados(resultados, entradas);
+  caja.replaceChildren(...(entradas.length === 0
+    ? [h('div', { className: 'vacio' }, h('p', {}, 'Todavía no hay entregas completas: aquí aparecen las peticiones que el destinatario descargó.'))]
+    : [busquedaRegistro(resultados, entradas), resultados]),
+  h('p', { className: 'nota' }, 'El registro no contiene datos de personas atendidas: solo fechas, identificadores de destinatarios, conteos, nombres de columnas y resultados. Por no repudio no se puede borrar ni modificar.'));
 }
 
 function pintar() {
-  pintarTablero();
+  const u = sesion.actual();
+  if (!u) vista = 'login';
+  else if (!VISTAS[u.rol].some(([v]) => v === vista)) vista = VISTAS[u.rol][0][0];
+  pintarCabecera(u);
+  for (const id of VISTAS_ID) $(id).hidden = id !== vista;
+  if (vista === 'login') return pintarLogin($('login'), () => { vista = ''; pintar(); });
+  if (vista === 'tablero') return pintarTiTablero($('tablero'), { pintarRegistro, irAPeticiones: () => irA('ti-peticiones') });
+  if (vista === 'ti-peticiones') return pintarTiPeticiones($('ti-peticiones'), { procesar: procesarPeticion, repintar: pintar });
+  if (vista === 'ti-logs') return pintarTiLogs($('ti-logs'));
+  if (vista === 'ce-peticiones') return pintarComite($('ce-peticiones'));
+  if (vista === 'doc-peticiones') return pintarDoctor($('doc-peticiones'));
+  pintarProceso();
+}
+
+function pintarProceso() {
   const foco = document.activeElement?.id;
   const montajes = [];
   $('contenido').replaceChildren(...SECCIONES.map(([id, titulo, descripcion, panel]) => {
@@ -830,13 +685,12 @@ function pintar() {
 }
 
 $('reiniciar').addEventListener('click', empezarDeNuevo);
+$('cerrar-sesion').addEventListener('click', cerrarSesion);
 $('ayuda-abrir').addEventListener('click', () => $('ayuda').showModal());
 $('ayuda-cerrar').addEventListener('click', () => $('ayuda').close());
-$('ver-tablero').addEventListener('click', () => irA('tablero'));
-$('ver-proceso').addEventListener('click', () => irA(siguientePaso()[1]));
-// Atajos: Alt+0 abre el tablero; Alt+1…6 salta a cada sección.
+// Atajos de TI: Alt+0 abre el tablero; Alt+1…5 salta a cada paso del procesamiento.
 globalThis.addEventListener?.('keydown', e => {
-  if (!e.altKey) return;
+  if (!e.altKey || sesion.actual()?.rol !== 'ti') return;
   if (e.key === '0') { e.preventDefault(); irA('tablero'); return; }
   const seccion = SECCIONES[Number(e.key) - 1];
   if (seccion) { e.preventDefault(); irA(seccion[0]); }
@@ -845,4 +699,3 @@ globalThis.addEventListener?.('keydown', e => {
 globalThis.addEventListener?.('beforeunload', e => { if (S.datos || S.revision) { e.preventDefault(); e.returnValue = ''; } });
 
 pintar();
-verVista(vista);

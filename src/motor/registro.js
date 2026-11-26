@@ -70,6 +70,10 @@ export function paginar(lista, pagina, porPagina = 10) {
   return { filas: lista.slice(inicio, inicio + porPagina), pagina: actual, paginas, total, desde: total ? inicio + 1 : 0, hasta: Math.min(inicio + porPagina, total) };
 }
 
+// Una ejecución está completa cuando pasó por todos los pasos y llegó a la descarga:
+// APTA, con petición registrada y al menos un archivo entregado. El tablero solo muestra estas.
+export const ejecucionCompleta = e => !!e.apto && !!e.destinatario && e.descargas.length > 0;
+
 // Totales para las tarjetas del tablero.
 export function resumenRegistro(lista) {
   const descargas = lista.flatMap(e => e.descargas.map(d => ({ ...d, id: e.id })))
