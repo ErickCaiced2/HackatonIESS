@@ -7,7 +7,8 @@ import { CAPITULOS, bloquesDe, categoriasDe, FILTRO_ESTUDIO, esDelEstudio, nombr
   periodo, etiquetaPeriodo, anioActual, PERIODO_MINIMO } from '../motor/cie10.js';
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML,
   BORRADOR_RIESGO, BORRADOR_TITULAR, ACUERDO, acuerdoTexto } from '../motor/entregables.js';
-import { crearRegistro, entradaDeEjecucion, resumenRegistro } from '../motor/registro.js';
+import { crearRegistro, entradaDeEjecucion, resumenRegistro, filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal } from '../motor/registro.js';
+import { TIPOS_DESTINATARIO, validarDestinatario, mismoDestinatario, etiquetaDestinatario, ejemploDestinatario, normalizarId } from '../motor/destinatario.js';
 import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar, cerrarNotificaciones } from './dom.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
@@ -15,10 +16,12 @@ const inicial = () => ({
   datos: null, archivo: '', cohorte: null, antes: null, ...sinResultados(),
   config: { ...REFERENCIA }, propia: { ...PROPIA }, filtro: { ...FILTRO_ESTUDIO },
   deshacer: null, desactualizado: false,
+  destinatario: { tipo: 'msp', id: '' }, // a quién va dirigida la petición
 });
 const ptaInicial = () => ({
   equipo: '', riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR, atacante: '', canal: '', okRiesgo: false, okTitular: false,
   acuerdoEn: '', // fecha en que se marcó el acuerdo; vacío = no aceptado
+  entregarA: { tipo: 'msp', id: '' }, // a quién se entregan los archivos; debe ser el destinatario de la petición
 });
 let S = inicial();
 const pta = ptaInicial();
@@ -79,7 +82,7 @@ async function sePuedeDescartar(accion) {
     `Al ${accion} se borran los resultados de esta sesión. Las descargas ya guardadas no cambian.`, 'Descartar y continuar');
 }
 
-function limpiarRevision() { pta.okRiesgo = pta.okTitular = false; pta.acuerdoEn = ''; }
+function limpiarRevision() { pta.okRiesgo = pta.okTitular = false; pta.acuerdoEn = ''; pta.entregarA = { tipo: 'msp', id: '' }; }
 
 // ---------- 1. Datos ----------
 async function cargar(entrada) {
@@ -232,7 +235,10 @@ function elegirModo(tipo) {
 function anonimizar() {
   const solicitadoEn = new Date().toISOString(); // momento en que el operador pide la anonimización
   trabajar('Protegiendo los datos y midiendo el resultado…', () => {
+    const errorDestinatario = validarDestinatario(S.destinatario);
+    if (errorDestinatario) throw new Error('Destinatario de la petición: ' + errorDestinatario);
     S.r = ejecutar(S.cohorte, S.config, S.datos.nombreOriginal);
+    S.r.destinatario = { tipo: S.destinatario.tipo, id: normalizarId(S.destinatario.id) };
     registro.agregar(entradaDeEjecucion(S.r, { archivo: S.archivo, solicitadoEn }));
     S.historial[S.config.tipo] = S.r;
     S.desactualizado = false;
@@ -294,15 +300,53 @@ function panelProteccion() {
       tablaConBusqueda('variables', ['Columna', 'Qué es', 'Categoría especial', '¿La pide el estudio?', 'Qué se hace', 'Cómo'],
         variables.map(v => [v.nombre, v.clasificacion, v.categoria || '—', v.solicitada, v.tecnica, v.parametro || '—']))),
     errores.map(e => aviso('mal', e)),
+    campoDestinatario(),
     h('div', { className: 'acciones' },
       boton(S.r ? 'Volver a proteger y medir' : 'Proteger los datos y medir', anonimizar,
-        { className: 'principal', id: 'anonimizar', disabled: errores.length > 0 }),
+        { className: 'principal', id: 'anonimizar', disabled: errores.length > 0 || !!validarDestinatario(S.destinatario) }),
       S.deshacer && boton('Deshacer el último cambio ↶', () => {
         Object.assign(S, S.deshacer, { deshacer: null });
         limpiarRevision(); pintar();
         notificar('ok', 'Se deshizo el último cambio.');
       })),
   ];
+}
+
+// Selector de tipo + identificador de una persona, con validación en línea.
+// Al escribir no se repinta el panel (así no se pierde el cursor); al confirmar, sí.
+function campoPersona(prefijo, valor, { alEscribir, alConfirmar, extraError = () => '' }) {
+  const mensaje = h('p', { className: 'error-campo', id: prefijo + '-error', role: 'status' });
+  const validar = () => {
+    const err = valor.id.trim() ? (validarDestinatario(valor) || extraError(valor)) : '';
+    mensaje.textContent = err ? err + ' ✗' : '';
+    entrada.setAttribute('aria-invalid', String(!!err));
+    return err;
+  };
+  const entrada = h('input', { id: prefijo + '-id', value: valor.id, placeholder: 'Ej.: ' + ejemploDestinatario(valor.tipo),
+    autocomplete: 'off', spellcheck: false, 'aria-describedby': prefijo + '-error',
+    oninput: e => { valor.id = e.target.value; validar(); alEscribir?.(); },
+    onchange: () => { valor.id = normalizarId(valor.id); alConfirmar?.(); } });
+  const tipo = h('select', { id: prefijo + '-tipo', onchange: e => { valor.tipo = e.target.value; alConfirmar?.(); } },
+    Object.entries(TIPOS_DESTINATARIO).map(([v, t]) => h('option', { value: v, selected: v === valor.tipo }, t)));
+  validar();
+  return [h('div', { className: 'fila' }, h('label', {}, 'Tipo', tipo), h('label', {}, 'Identificador', entrada)), mensaje];
+}
+
+function campoDestinatario() {
+  const marcarCambio = () => {
+    if (S.r) {
+      guardarParaDeshacer();
+      S.r = null; delete S.historial[S.config.tipo]; S.desactualizado = true; limpiarRevision();
+      notificar('aviso', 'Cambió el destinatario de la petición. Vuelva a proteger los datos para registrar la petición a su nombre.');
+    }
+    pintar();
+  };
+  return h('fieldset', { className: 'destinatario' }, h('legend', {}, 'Petición dirigida a'),
+    h('p', { className: 'nota' }, 'Persona que recibirá los datos. Profesional de salud: número de licencia del MSP. Personal del IESS: identificador institucional (ej.: IESS-0002). Queda en el registro y solo esta persona podrá recibir la entrega.'),
+    campoPersona('dest', S.destinatario, {
+      alEscribir: () => { const b = $('anonimizar'); if (b) b.disabled = validarConfig(S.config).length > 0 || !!validarDestinatario(S.destinatario); },
+      alConfirmar: marcarCambio,
+    }));
 }
 
 // ---------- 3. Resultados ----------
@@ -400,6 +444,7 @@ const requisitos = () => [
   ['Texto de riesgo residual revisado', pta.okRiesgo],
   ['Resumen para el titular revisado', pta.okTitular],
   ['Acuerdo de confidencialidad aceptado', pta.acuerdoEn !== ''],
+  ['Se entrega al destinatario de la petición', mismoDestinatario(pta.entregarA, S.r?.destinatario)],
 ];
 const entregaLista = () => requisitos().every(([, ok]) => ok);
 
@@ -415,19 +460,21 @@ function descargar(nombre, contenido, tipo) {
 async function descargarEntrega(cual) {
   if (!entregaLista()) throw new Error('Faltan requisitos de entrega.');
   const r = S.r, base = `R2_Equipo${pta.equipo}`, aceptadoEn = pta.acuerdoEn;
+  if (!mismoDestinatario(pta.entregarA, r.destinatario)) throw new Error('Los archivos solo pueden entregarse al destinatario de la petición.');
+  const entregadoA = { tipo: pta.entregarA.tipo, id: normalizarId(pta.entregarA.id) };
   const csv = aCSV(r.columnas, r.salida), config = configuracionJSON(r);
   const archivos = {
     csv: [base + '_salida.csv', csv, 'text/csv;charset=utf-8'],
     config: [base + '_configuracion.json', config, 'application/json'],
-    traza: [base + '_trazabilidad.json', await trazabilidadJSON(r, await sha256(csv), await sha256(config), aceptadoEn), 'application/json'],
+    traza: [base + '_trazabilidad.json', await trazabilidadJSON(r, await sha256(csv), await sha256(config), aceptadoEn, entregadoA), 'application/json'],
     pta: [base + '_PTA.html', ptaHTML(r, pta), 'text/html;charset=utf-8'],
   };
   const elegido = cual === 'zip'
     ? [base + '_paquete.zip', zip([...Object.values(archivos).map(([n, c]) => [n, c]),
-      [base + '_acuerdo.txt', acuerdoTexto(r.id, aceptadoEn)]]), 'application/zip']
+      [base + '_acuerdo.txt', acuerdoTexto(r.id, aceptadoEn, r.destinatario)]]), 'application/zip']
     : archivos[cual];
+  registro.descarga(r.id, elegido[0], new Date().toISOString(), entregadoA); // se registra antes de entregar
   descargar(...elegido);
-  registro.descarga(r.id, elegido[0]);
   return elegido[0];
 }
 
@@ -439,7 +486,7 @@ function panelEntrega() {
       mostrarError('');
       try {
         const nombre = await descargarEntrega(id);
-        notificar('ok', `Se envió a descargas: ${nombre}.`);
+        notificar('ok', `Se envió a descargas: ${nombre}. Entregado a ${etiquetaDestinatario(S.r.destinatario)}.`);
       } catch (e) { mostrarError(e.message); }
     }, { id: 'bajar-' + id, className: id === 'zip' ? 'principal' : 'secundario' }));
   const lista = h('ul', { className: 'requisitos' });
@@ -482,6 +529,13 @@ function panelEntrega() {
     S.r.config.tipo === 'referencia' && aviso('aviso', 'Va a exportar la configuración REFERENCIA.',
       boton('Cambiar a Propia', () => { elegirModo('propia'); irA('proteccion'); })),
     escribir('Número de equipo (2 dígitos)', 'equipo', null, 'Ej.: 07', { inputMode: 'numeric', maxLength: 2 }),
+    h('fieldset', { className: 'destinatario' }, h('legend', {}, 'Entregar a'),
+      h('p', { className: 'nota' }, `Escriba a quién entrega los archivos. Debe ser el destinatario registrado en la petición: ${etiquetaDestinatario(S.r.destinatario)}.`),
+      campoPersona('entregar', pta.entregarA, {
+        alEscribir: () => actualizar(),
+        alConfirmar: () => pintar(),
+        extraError: v => (mismoDestinatario(v, S.r.destinatario) ? '' : 'No coincide con el destinatario de la petición: no se puede entregar a otra persona.'),
+      })),
     seccion('Riesgo que queda y cómo se reduce', 'riesgo', 'okRiesgo',
       escribir('¿Quién podría intentar reidentificar? (supuesto del equipo)', 'atacante', 'okRiesgo', 'Escriba el supuesto del equipo')),
     seccion('Resumen para la persona titular de los datos', 'titular', 'okTitular',
@@ -538,6 +592,7 @@ function pintarNavegacion() {
 
 // ---------- Tablero (página principal) ----------
 const fechaHora = iso => (iso ? new Date(iso).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'medium' }) : '—');
+const diaLocalHoy = () => diaLocal(new Date().toISOString());
 const fechaCorta = iso => (iso ? new Date(iso).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
 function verVista(nueva) {
@@ -553,6 +608,7 @@ function verVista(nueva) {
 function resumenEjecucion(e) {
   return tablaAdaptable(['Dato', 'Valor'], [
     ['Código de ejecución', e.id],
+    ['Petición dirigida a', etiquetaDestinatario(e.destinatario)],
     ['Petición de anonimización', fechaHora(e.solicitadoEn)],
     ['Elaboración del dataset', fechaHora(e.elaboradoEn)],
     ['Archivo de origen', e.archivo || '—'],
@@ -600,39 +656,111 @@ function abrirDetalle(id) {
       ],
     h('h3', {}, 'Descargas'),
     e.descargas.length
-      ? tablaAdaptable(['Archivo', 'Fecha de descarga'], e.descargas.map(x => [x.archivo, fechaHora(x.fecha)]))
+      ? tablaAdaptable(['Archivo', 'Fecha de entrega', 'Entregado a'], e.descargas.map(x => [x.archivo, fechaHora(x.fecha), etiquetaDestinatario(x.entregadoA)]))
       : h('p', {}, 'Este dataset no se ha descargado.'),
     h('p', { className: 'nota' }, 'Solo se muestran nombres de columnas, técnicas y conteos; nunca valores de las personas.')));
   d.showModal();
   d.scrollTop = 0;
 }
 
+// Filtros y paginación del registro (se conservan al volver al tablero).
+const filtrosTablero = { peticionDesde: '', peticionHasta: '', entregaDesde: '', entregaHasta: '', texto: '' };
+let paginaTablero = 1, porPaginaTablero = TAMANOS_PAGINA[0];
+
+function filaRegistro(e) {
+  const ultima = e.descargas.at(-1);
+  return [
+    fechaCorta(e.solicitadoEn),
+    fechaCorta(e.elaboradoEn),
+    etiquetaDestinatario(e.destinatario),
+    e.archivo || '—',
+    h('div', { className: 'celda-doble' }, etiqueta(e.kDespues >= e.kMeta ? 'ok' : 'mal', `k = ${e.kDespues}`),
+      h('small', {}, `Antes ${e.kAntes} · meta ≥ ${e.kMeta}`)),
+    h('div', { className: 'celda-doble' }, `${e.anonimizaciones} columnas`,
+      h('small', {}, `${e.columnasClasificadas} de ${e.totalColumnas} clasificadas`)),
+    etiqueta(e.apto ? 'ok' : 'mal', e.apto ? 'Apto' : 'No apto'),
+    ultima
+      ? h('div', { className: 'celda-doble' }, fechaCorta(ultima.fecha), h('small', {}, `a ${ultima.entregadoA?.id ?? '—'} · ${e.descargas.length} archivo(s)`))
+      : etiqueta('neutro', 'Sin entrega'),
+    boton('Ver detalle', () => abrirDetalle(e.id), { id: 'detalle-' + e.id, 'aria-haspopup': 'dialog', 'aria-label': `Ver detalle de ${e.id}` }),
+  ];
+}
+
+function pintarResultados(caja, entradas) {
+  const f = filtrosTablero;
+  const rangoMal = (f.peticionDesde && f.peticionHasta && f.peticionDesde > f.peticionHasta)
+    || (f.entregaDesde && f.entregaHasta && f.entregaDesde > f.entregaHasta);
+  const filtradas = filtrarRegistro(entradas, f);
+  const p = paginar(filtradas, paginaTablero, porPaginaTablero);
+  paginaTablero = p.pagina;
+  const ir = n => { paginaTablero = n; pintarResultados(caja, entradas); $('registro-tabla')?.focus(); };
+  const tabla = tablaAdaptable(['Petición', 'Elaboración', 'Dirigida a', 'Archivo', 'Riesgo k', 'Anonimización', 'Estado', 'Entrega', 'Detalle'],
+    p.filas.map(filaRegistro));
+  tabla.classList.add('tabla-registro');
+  tabla.id = 'registro-tabla';
+  tabla.setAttribute('aria-label', `Registro, página ${p.pagina} de ${p.paginas}`);
+  caja.replaceChildren(
+    rangoMal ? aviso('mal', 'La fecha inicial no puede ser posterior a la final.') : '',
+    h('p', { className: 'nota', role: 'status' }, p.total
+      ? `Mostrando ${num(p.desde)}–${num(p.hasta)} de ${num(p.total)} ejecuciones${p.total < entradas.length ? ` (filtradas de ${num(entradas.length)})` : ''}.`
+      : 'Ninguna ejecución coincide con la búsqueda.'),
+    p.total ? tabla : '',
+    h('div', { className: 'paginacion' },
+      h('label', { className: 'por-pagina' }, 'Filas por página',
+        h('select', { id: 'por-pagina', onchange: e => { porPaginaTablero = Number(e.target.value); paginaTablero = 1; pintarResultados(caja, entradas); } },
+          TAMANOS_PAGINA.map(n => h('option', { value: n, selected: n === porPaginaTablero }, String(n))))),
+      h('div', { className: 'paginas' },
+        boton('Anterior', () => ir(p.pagina - 1), { id: 'pagina-anterior', disabled: p.pagina <= 1 }),
+        h('span', {}, `Página ${p.pagina} de ${p.paginas}`),
+        boton('Siguiente', () => ir(p.pagina + 1), { id: 'pagina-siguiente', disabled: p.pagina >= p.paginas }))));
+}
+
+function busquedaRegistro(caja, entradas) {
+  const hoy = diaLocalHoy();
+  const fecha = (texto, clave, opuesta, esDesde) => h('label', {}, texto,
+    h('input', { type: 'date', id: 'f-' + clave, value: filtrosTablero[clave], max: hoy,
+      min: esDesde ? undefined : filtrosTablero[opuesta] || undefined,
+      onchange: e => {
+        filtrosTablero[clave] = e.target.value; paginaTablero = 1;
+        const otra = $('f-' + opuesta);
+        if (otra) { if (esDesde) otra.min = e.target.value; else otra.max = e.target.value || hoy; }
+        pintarResultados(caja, entradas);
+      } }));
+  const desdeMax = (clave, opuesta) => { const i = $('f-' + clave); if (i) i.max = filtrosTablero[opuesta] || hoy; };
+  const bloque = h('fieldset', { className: 'busqueda-registro' }, h('legend', {}, 'Buscar en el registro'),
+    h('div', { className: 'filtros-registro' },
+      fecha('Petición desde', 'peticionDesde', 'peticionHasta', true),
+      fecha('Petición hasta', 'peticionHasta', 'peticionDesde', false),
+      fecha('Entrega desde', 'entregaDesde', 'entregaHasta', true),
+      fecha('Entrega hasta', 'entregaHasta', 'entregaDesde', false),
+      h('label', {}, 'Destinatario, archivo o código',
+        h('input', { type: 'search', id: 'f-texto', value: filtrosTablero.texto, placeholder: 'Ej.: IESS-0002',
+          oninput: e => { filtrosTablero.texto = e.target.value; paginaTablero = 1; pintarResultados(caja, entradas); } }))),
+    boton('Limpiar búsqueda', () => { Object.keys(filtrosTablero).forEach(k => { filtrosTablero[k] = ''; }); paginaTablero = 1; pintarTablero(); },
+      { id: 'limpiar-busqueda' }));
+  queueMicrotask(() => { desdeMax('peticionDesde', 'peticionHasta'); desdeMax('entregaDesde', 'entregaHasta'); });
+  return bloque;
+}
+
 function pintarTablero() {
   const entradas = registro.lista(), t = resumenRegistro(entradas), u = t.ultima;
-  const ultimaDescarga = e => e.descargas.at(-1);
+  const caja = h('div', { className: 'resultados-registro' });
+  if (entradas.length) pintarResultados(caja, entradas);
   $('tablero').replaceChildren(h('section', { className: 'panel', 'aria-labelledby': 'tablero-h' },
     h('div', { className: 'cabeza-tablero' },
       h('div', {}, h('h2', { id: 'tablero-h', tabIndex: -1 }, 'Tablero de ejecuciones'),
-        h('p', { className: 'descripcion' }, 'Registro de cada anonimización: cuándo se pidió, el riesgo (k) medido, qué se transformó y cuándo se descargó.')),
+        h('p', { className: 'descripcion' }, 'Registro de cada anonimización: cuándo se pidió, para quién, el riesgo (k) medido, qué se transformó y cuándo se entregó.')),
       boton('Nueva anonimización →', () => irA(siguientePaso()[1]), { className: 'principal', id: 'nueva' })),
     !registro.persistente && aviso('aviso', 'Este navegador no permite guardar el registro: se perderá al cerrar la página.'),
     h('div', { className: 'indicadores' },
       indicador('Ejecuciones registradas', num(t.ejecuciones), `${num(t.aptas)} aptas · ${num(t.ejecuciones - t.aptas)} no aptas`),
       indicador('k de la última ejecución', u ? u.kDespues : '—', u ? `Antes: ${u.kAntes}. Meta: ${u.kMeta} o más` : 'Sin ejecuciones', u ? u.kDespues >= u.kMeta : undefined),
       indicador('Anonimizaciones aplicadas', num(t.anonimizaciones), 'Columnas transformadas, sumando todas las ejecuciones'),
-      indicador('Datasets descargados', num(t.descargas), t.ultimaDescarga ? `Última: ${fechaHora(t.ultimaDescarga.fecha)}` : 'Ninguna descarga todavía')),
+      indicador('Datasets entregados', num(t.descargas), t.ultimaDescarga ? `Última: ${fechaHora(t.ultimaDescarga.fecha)}` : 'Ninguna entrega todavía')),
     entradas.length === 0
       ? h('div', { className: 'vacio' }, h('p', {}, 'Todavía no hay ejecuciones registradas. Pulse «Nueva anonimización» para empezar.'))
-      : [h('h3', {}, 'Registro'),
-        tablaAdaptable(['Petición', 'Dataset elaborado', 'Archivo', 'Configuración', { texto: 'Riesgo k', sub: ['Antes', 'Después', 'Meta'] }, 'Anonimizaciones', 'Clasificación', 'Estado', 'Descarga', 'Detalle'],
-          entradas.map(e => [fechaCorta(e.solicitadoEn), fechaCorta(e.elaboradoEn), e.archivo || '—', e.configuracion,
-            e.kAntes, etiqueta(e.kDespues >= e.kMeta ? 'ok' : 'mal', String(e.kDespues)), `≥ ${e.kMeta}`,
-            `${e.anonimizaciones} columnas · ${num(e.celdasModificadas)} celdas`,
-            etiqueta(e.columnasClasificadas === e.totalColumnas ? 'ok' : 'aviso', `${e.columnasClasificadas} de ${e.totalColumnas}`),
-            etiqueta(e.apto ? 'ok' : 'mal', e.apto ? 'Apto' : 'No apto'),
-            ultimaDescarga(e) ? `${fechaCorta(ultimaDescarga(e).fecha)} (${e.descargas.length} archivo(s))` : etiqueta('neutro', 'No descargado'),
-            boton('Ver detalle', () => abrirDetalle(e.id), { id: 'detalle-' + e.id, 'aria-haspopup': 'dialog', 'aria-label': `Ver detalle de ${e.id}` })]))],
-    h('p', { className: 'nota' }, 'El registro se guarda solo en este navegador y no contiene datos de personas: solo fechas, conteos, nombres de columnas y resultados de cada ejecución. Por no repudio, la aplicación no permite borrarlo ni modificar ejecuciones registradas.')));
+      : [h('h3', {}, 'Registro'), busquedaRegistro(caja, entradas), caja],
+    h('p', { className: 'nota' }, 'El registro se guarda solo en este navegador y no contiene datos de personas atendidas: solo fechas, identificadores de destinatarios, conteos, nombres de columnas y resultados de cada ejecución. Por no repudio, la aplicación no permite borrarlo ni modificar ejecuciones registradas.')));
 }
 
 function pintar() {

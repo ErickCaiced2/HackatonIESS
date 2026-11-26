@@ -18,9 +18,11 @@ export function configuracionJSON(r) {
   }, null, 2);
 }
 
-export async function trazabilidadJSON(r, huellaCSV, huellaConfig, acuerdoEn = null) {
+export async function trazabilidadJSON(r, huellaCSV, huellaConfig, acuerdoEn = null, entregadoA = null) {
   return JSON.stringify({
     id_ejecucion: r.id, fecha: r.fecha, version: r.version,
+    destinatario_peticion: r.destinatario ?? null,
+    entregado_a: entregadoA,
     configuracion: r.config.tipo, parametros: r.config,
     sha256_csv: huellaCSV, sha256_configuracion: huellaConfig,
     estado: r.apto ? 'APTO' : 'NO APTO',
@@ -59,10 +61,11 @@ export const ACUERDO = Object.freeze({
   ],
 });
 
-export function acuerdoTexto(idEjecucion, aceptadoEn) {
+export function acuerdoTexto(idEjecucion, aceptadoEn, destinatario = null) {
   return [
     `ACUERDO DE CONFIDENCIALIDAD Y USO · versión ${ACUERDO.version}`,
     `Ejecución: ${idEjecucion}`,
+    ...(destinatario ? [`Destinatario autorizado: ${destinatario.id} (${destinatario.tipo === 'msp' ? 'licencia MSP' : 'IESS'}). Solo esta persona puede recibir los archivos.`] : []),
     `Casilla marcada: ${aceptadoEn}`,
     '',
     ...ACUERDO.condiciones.map((c, i) => `${i + 1}. ${c}`),
@@ -82,7 +85,7 @@ export function ptaHTML(r, { equipo, riesgo, titular, atacante = '', canal = '' 
 <p>Ejercicio académico con datos sintéticos; no sustituye la autorización de la SPDP.</p>
 <h2>1. Datos generales</h2>
 ${tabla(['Campo', 'Valor'], [
-    ['Equipo', equipo], ['Estudio', 'Distribución de la atención en salud mental en la red del IESS, 2023-2025'],
+    ['Equipo', equipo], ['Destinatario autorizado', r.destinatario ? `${r.destinatario.id} (${r.destinatario.tipo === 'msp' ? 'licencia MSP' : 'IESS'})` : '—'], ['Estudio', 'Distribución de la atención en salud mental en la red del IESS, 2023-2025'],
     ['Cohorte entregada', `${d.personas} personas, ${d.atenciones} atenciones`],
     ['Herramienta', `Prototipo R2 ${r.version}`], ['Configuración', r.config.tipo], ['Fecha', r.fecha.slice(0, 10)],
     ['Ejecución', r.id]])}

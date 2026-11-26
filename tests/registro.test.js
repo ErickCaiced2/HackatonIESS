@@ -76,3 +76,58 @@ test('registro: sin almacén usa memoria y lo indica', () => {
   reg.agregar({ id: 'A', descargas: [], anonimizaciones: 1, apto: true });
   assert.equal(reg.lista().length, 1);
 });
+
+test('destinatario: licencia del MSP o identificador IESS, y la entrega debe ser a la misma persona', async () => {
+  const { validarDestinatario, mismoDestinatario } = await import('../src/motor/destinatario.js');
+  assert.equal(validarDestinatario({ tipo: 'iess', id: 'IESS-0002' }), '');
+  assert.equal(validarDestinatario({ tipo: 'iess', id: ' iess-0002 ' }), '');
+  assert.match(validarDestinatario({ tipo: 'iess', id: 'IESS-2' }), /Formato no válido/);
+  assert.equal(validarDestinatario({ tipo: 'msp', id: '1720-2015-123456' }), '');
+  assert.match(validarDestinatario({ tipo: 'msp', id: 'ABC' }), /Formato no válido/);
+  assert.match(validarDestinatario({ tipo: 'msp', id: '' }), /Escriba/);
+  assert.ok(mismoDestinatario({ tipo: 'iess', id: 'iess-0002' }, { tipo: 'iess', id: 'IESS-0002' }));
+  assert.equal(mismoDestinatario({ tipo: 'iess', id: 'IESS-0003' }, { tipo: 'iess', id: 'IESS-0002' }), false);
+  assert.equal(mismoDestinatario({ tipo: 'msp', id: '0002' }, { tipo: 'iess', id: '0002' }), false);
+});
+
+test('registro: guarda destinatario de la petición y a quién se entregó', async () => {
+  const { trazabilidadJSON, acuerdoTexto } = await import('../src/motor/entregables.js');
+  const { r } = ejecucion();
+  r.destinatario = { tipo: 'iess', id: 'IESS-0002' };
+  const reg = crearRegistro(null);
+  reg.agregar(entradaDeEjecucion(r));
+  reg.descarga(r.id, 'paquete.zip', '2026-03-01T12:00:00.000Z', { tipo: 'iess', id: 'IESS-0002' });
+  const e = reg.lista()[0];
+  assert.deepEqual(e.destinatario, { tipo: 'iess', id: 'IESS-0002' });
+  assert.deepEqual(e.descargas[0].entregadoA, { tipo: 'iess', id: 'IESS-0002' });
+  const traza = JSON.parse(await trazabilidadJSON(r, 'a', 'b', null, { tipo: 'iess', id: 'IESS-0002' }));
+  assert.deepEqual(traza.destinatario_peticion, r.destinatario);
+  assert.deepEqual(traza.entregado_a, { tipo: 'iess', id: 'IESS-0002' });
+  assert.match(acuerdoTexto(r.id, 'x', r.destinatario), /Destinatario autorizado: IESS-0002/);
+});
+
+test('registro: búsqueda por fecha de petición, de entrega y texto; paginación de 10 a 100', async () => {
+  const { filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal } = await import('../src/motor/registro.js');
+  const base = { descargas: [], destinatario: { tipo: 'iess', id: 'IESS-0001' }, archivo: 'a.csv' };
+  const iso = d => new Date(d + 'T12:00:00').toISOString(); // mediodía local: el día no cambia por zona horaria
+  const lista = [
+    { ...base, id: 'A', solicitadoEn: iso('2026-01-10') },
+    { ...base, id: 'B', solicitadoEn: iso('2026-02-10'), descargas: [{ fecha: iso('2026-02-12'), archivo: 'x' }] },
+    { ...base, id: 'C', solicitadoEn: iso('2026-03-10'), destinatario: { tipo: 'msp', id: '1720-2015-1' }, descargas: [{ fecha: iso('2026-03-20'), archivo: 'y' }] },
+  ];
+  assert.equal(diaLocal(iso('2026-01-10')), '2026-01-10');
+  const ids = f => filtrarRegistro(lista, f).map(e => e.id);
+  assert.deepEqual(ids({ peticionDesde: '2026-02-01' }), ['B', 'C']);
+  assert.deepEqual(ids({ peticionDesde: '2026-02-01', peticionHasta: '2026-02-28' }), ['B']);
+  assert.deepEqual(ids({ entregaDesde: '2026-03-01' }), ['C']);
+  assert.deepEqual(ids({ entregaHasta: '2026-12-31' }), ['B', 'C']); // con filtro de entrega, sin entrega no aparece
+  assert.deepEqual(ids({ texto: '1720' }), ['C']);
+  assert.deepEqual(ids({ peticionDesde: '2026-03-01', peticionHasta: '2026-01-01' }), []);
+  assert.deepEqual(TAMANOS_PAGINA, [10, 20, 50, 100]);
+  const muchas = Array.from({ length: 23 }, (_, i) => i);
+  assert.deepEqual(paginar(muchas, 1).filas, muchas.slice(0, 10));
+  assert.deepEqual(paginar(muchas, 3), { filas: [20, 21, 22], pagina: 3, paginas: 3, total: 23, desde: 21, hasta: 23 });
+  assert.equal(paginar(muchas, 9).pagina, 3);
+  assert.equal(paginar(muchas, 1, 50).filas.length, 23);
+  assert.deepEqual(paginar([], 1), { filas: [], pagina: 1, paginas: 1, total: 0, desde: 0, hasta: 0 });
+});
