@@ -77,14 +77,27 @@ test('registro: sin almacén usa memoria y lo indica', () => {
   assert.equal(reg.lista().length, 1);
 });
 
-test('destinatario: licencia del MSP o identificador IESS, y la entrega debe ser a la misma persona', async () => {
-  const { validarDestinatario, mismoDestinatario } = await import('../src/motor/destinatario.js');
+test('destinatario: licencia del MSP 0000-0000-000000 o identificador IESS, y la entrega debe ser a la misma persona', async () => {
+  const { validarDestinatario, mismoDestinatario, formatearId, excedeLongitud } = await import('../src/motor/destinatario.js');
   assert.equal(validarDestinatario({ tipo: 'iess', id: 'IESS-0002' }), '');
   assert.equal(validarDestinatario({ tipo: 'iess', id: ' iess-0002 ' }), '');
-  assert.match(validarDestinatario({ tipo: 'iess', id: 'IESS-2' }), /Formato no válido/);
+  assert.match(validarDestinatario({ tipo: 'iess', id: 'IESS-2' }), /incompleto/);
   assert.equal(validarDestinatario({ tipo: 'msp', id: '1720-2015-123456' }), '');
-  assert.match(validarDestinatario({ tipo: 'msp', id: 'ABC' }), /Formato no válido/);
+  assert.match(validarDestinatario({ tipo: 'msp', id: '1720-2015-12' }), /incompleto/);
+  assert.match(validarDestinatario({ tipo: 'msp', id: '1720-2015-1234567' }), /^Identificador inválido/);
   assert.match(validarDestinatario({ tipo: 'msp', id: '' }), /Escriba/);
+  // Guiones automáticos al completar cada grupo (4-4-6); al borrar no se agrega el guion final.
+  assert.equal(formatearId('msp', '1720'), '1720-');
+  assert.equal(formatearId('msp', '1720', { separadorFinal: false }), '1720');
+  assert.equal(formatearId('msp', '17202015'), '1720-2015-');
+  assert.equal(formatearId('msp', '1720-2015-123456'), '1720-2015-123456');
+  assert.equal(formatearId('msp', '1720 2015 123456'), '1720-2015-123456');
+  assert.equal(formatearId('msp', '17202015123456789'), '1720-2015-123456789');
+  assert.ok(excedeLongitud({ tipo: 'msp', id: '1720-2015-1234567' }));
+  assert.equal(excedeLongitud({ tipo: 'msp', id: '1720-2015-123456' }), false);
+  assert.equal(formatearId('iess', '0002'), 'IESS-0002');
+  assert.equal(formatearId('iess', 'iess-0002'), 'IESS-0002');
+  assert.ok(excedeLongitud({ tipo: 'iess', id: 'IESS-1234567' }));
   assert.ok(mismoDestinatario({ tipo: 'iess', id: 'iess-0002' }, { tipo: 'iess', id: 'IESS-0002' }));
   assert.equal(mismoDestinatario({ tipo: 'iess', id: 'IESS-0003' }, { tipo: 'iess', id: 'IESS-0002' }), false);
   assert.equal(mismoDestinatario({ tipo: 'msp', id: '0002' }, { tipo: 'iess', id: '0002' }), false);

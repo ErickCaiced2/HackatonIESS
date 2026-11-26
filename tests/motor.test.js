@@ -106,7 +106,7 @@ test('sin fugas: informe, configuración, PTA y CSV no llevan marcadores', async
   const r = ejecutar(preparar().cohorte, REFERENCIA);
   const salidas = [
     await trazabilidadJSON(r, 'x', 'y'), configuracionJSON(r),
-    ptaHTML(r, { equipo: '01', riesgo: 'texto', titular: '<script>' }), aCSV(r.columnas, r.salida),
+    ptaHTML(r, { riesgo: 'texto', titular: '<script>' }), aCSV(r.columnas, r.salida),
   ].join('\n');
   for (const marcador of ['MARCADOR', '0999999999', '0000000001', 'HC-0000001']) {
     assert.ok(!salidas.includes(marcador), marcador);
