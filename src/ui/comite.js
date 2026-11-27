@@ -1,6 +1,6 @@
 // Comité de ética: crea la petición (PDF aprobado, persona autorizada, periodo y diagnóstico),
 // la envía a TI y sigue su estado. Si TI la devuelve, la corrige y la reenvía.
-import { h, boton, aviso, etiqueta, tablaAdaptable, notificar } from './dom.js';
+import { h, boton, aviso, etiqueta, tablaAdaptable, notificar, datosClave } from './dom.js';
 import { ESTADOS, validarPeticion } from '../motor/peticiones.js';
 import { etiquetaDestinatario } from '../motor/destinatario.js';
 import { paginar, TAMANOS_PAGINA } from '../motor/registro.js';
@@ -60,6 +60,7 @@ function formulario(contenedor) {
     h('h2', { id: 'form-peticion-h', tabIndex: -1 }, b.id ? `Corregir la petición ${b.id}` : 'Nueva petición'),
     h('p', { className: 'descripcion' }, 'Adjunte la solicitud aprobada, indique a quién va dirigido el entregable y qué datos necesita. TI la revisará y preparará el dataset.'),
     b.motivo && aviso('mal', `TI la devolvió: ${b.motivo}`),
+    h('div', { className: 'dos-columnas' },
     h('fieldset', {}, h('legend', {}, '1. Solicitud aprobada (PDF)'),
       h('label', { className: 'archivo' }, 'Elija el PDF de la aprobación del comité',
         h('input', { type: 'file', id: 'pet-pdf', accept: '.pdf,application/pdf',
@@ -67,7 +68,7 @@ function formulario(contenedor) {
       nombrePdf),
     h('fieldset', {}, h('legend', {}, '2. Persona autorizada a recibir el entregable'),
       h('p', { className: 'nota' }, 'Doctor (número de licencia del MSP) o personal del IESS (identificador institucional).'),
-      campoPersona('pet', b.destinatario)),
+      campoPersona('pet', b.destinatario))),
     h('fieldset', {}, h('legend', {}, '3. Parámetros mínimos del dataset'),
       campoFiltro(b.filtro, () => pintarComite(contenedor))),
     errores,
@@ -88,7 +89,7 @@ function abrirDetalle(p, contenedor) {
     h('div', { className: 'cabeza-dialogo' },
       h('h2', { id: 'detalle-titulo' }, `Detalle de ${p.id}`),
       boton('Cerrar ×', () => d.close(), { className: 'cerrar-dialogo' })),
-    tablaAdaptable(['Dato', 'Valor'], [
+    datosClave([
       ['Estado', etiquetaEstado(p.estado)],
       ['Creada', fechaHora(p.creadaEn)],
       ['Para', etiquetaDestinatario(p.destinatario)],

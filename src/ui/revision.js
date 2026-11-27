@@ -67,7 +67,7 @@ export function panelRevision(revision, repintar, alConfirmar) {
   return h('div', { className: 'revision' },
     h('h3', {}, 'Revisión de la IA'),
     h('p', {}, `${num(a.filas)} filas · ${a.columnas.length} columnas · separador: ${a.nombreSeparador} · codificación: ${codificacion}`),
-    h('div', { className: 'indicadores' },
+    h('div', { className: 'indicadores compacto' },
       [['Reconocidas', usadas.length], ['Dudosas', dudosas.length], ['Se eliminan', sobrantes.length],
         ['Datos mínimos', `${MINIMOS.filter(m => m.opciones.some(o => d.asignacion.includes(o))).length} de ${MINIMOS.length}`]]
         .map(([n, v]) => h('div', { className: 'indicador' }, h('span', {}, n), h('b', {}, v)))),

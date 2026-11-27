@@ -11,10 +11,10 @@ export function campoPersona(prefijo, valor, { alEscribir, alConfirmar, extraErr
   const validar = completo => {
     let nivel = '', texto = '';
     if (valor.id) {
-      if (excedeLongitud(valor)) { nivel = 'aviso'; texto = validarDestinatario(valor) + ' !'; }
+      if (excedeLongitud(valor)) { nivel = 'aviso'; texto = validarDestinatario(valor); }
       else if (completo) {
         const err = validarDestinatario(valor) || extraError(valor);
-        if (err) { nivel = 'mal'; texto = err + ' ✗'; }
+        if (err) { nivel = 'mal'; texto = err; }
       }
     }
     mensaje.className = 'error-campo ' + nivel;
@@ -109,15 +109,16 @@ export function campoFiltro(filtro, alCambiar) {
       sel('Categoría', 'pf-categoria', filtro.categoria, [['', 'Todas'], ...categorias.map(([c, n]) => [c, `${c} · ${n}`])],
         v => Object.assign(filtro, { categoria: v }),
         filtro.capitulo === 'V' ? '' : 'Fuera del capítulo V solo se puede pedir el capítulo o un grupo completo.')),
-    h('div', { className: 'fila' },
+    // Periodo y edad, lado a lado: cada uno con su nota debajo.
+    h('div', { className: 'fila periodo-edad' }, h('div', {}, h('div', { className: 'fila' },
       sel('Periodo desde el año', 'pf-desde', p.desde, anios.map(a => [a, String(a), a > p.hasta]), v => { filtro.desde = Number(v); }),
       sel('Periodo hasta el año', 'pf-hasta', p.hasta, anios.map(a => [a, String(a), a < p.desde]), v => { filtro.hasta = Number(v); })),
-    h('p', { className: 'nota' }, `Fecha de ingreso del 1 de enero de ${p.desde} al 31 de diciembre de ${p.hasta}.`),
-    h('div', { className: 'fila' },
+    h('p', { className: 'nota' }, `Fecha de ingreso del 1 de enero de ${p.desde} al 31 de diciembre de ${p.hasta}.`)),
+    h('div', {}, h('div', { className: 'fila' },
       sel('Edad desde (años)', 'pf-edad-desde', e.desde, edades.map(a => [a, String(a), e.hasta !== null && a > e.hasta]), v => { filtro.edadDesde = Number(v); }),
       sel('Edad hasta (años)', 'pf-edad-hasta', e.hasta ?? '', [['', 'Sin límite (o más)'], ...edades.map(a => [a, String(a), a < e.desde])],
         v => { filtro.edadHasta = v === '' ? null : Number(v); })),
-    h('p', { className: 'nota' }, `Edad cumplida a la fecha de la atención: ${etiquetaEdad(filtro)}. El mínimo es ${EDAD_MINIMA}: no se entregan datos de menores de edad (categoría especial, art. 25 LOPDP).`));
+    h('p', { className: 'nota' }, `Edad cumplida a la fecha de la atención: ${etiquetaEdad(filtro)}. El mínimo es ${EDAD_MINIMA}: no se entregan datos de menores de edad (categoría especial, art. 25 LOPDP).`))));
 }
 
 export const describirFiltro = f => `${etiquetaFiltro(f)} · ${etiquetaEdad(f)} · periodo ${etiquetaPeriodo(f)}`;

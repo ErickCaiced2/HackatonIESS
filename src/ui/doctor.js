@@ -1,6 +1,7 @@
 // Doctor o personal autorizado: ve las peticiones dirigidas a su código, firma el acuerdo de
 // confidencialidad y, solo entonces, se habilitan las descargas.
-import { h, boton, aviso, tablaAdaptable, notificar } from './dom.js';
+import { h, boton, aviso, tablaAdaptable, notificar, datosClave } from './dom.js';
+import { icono } from './iconos.js';
 import { ACUERDO, acuerdoTexto } from '../motor/entregables.js';
 import { zip } from '../motor/zip.js';
 import { etiquetaDestinatario } from '../motor/destinatario.js';
@@ -59,7 +60,7 @@ function vistaPeticion(p, contenedor) {
   return h('section', { className: 'panel', 'aria-labelledby': 'doc-pet-h' },
     boton('← Mis peticiones', () => { abierta = null; repintar(); }, { id: 'volver-lista' }),
     h('h2', { id: 'doc-pet-h', tabIndex: -1 }, `Petición ${p.id}`),
-    tablaAdaptable(['Dato', 'Valor'], [
+    datosClave([
       ['Estado', etiquetaEstado(p.estado)],
       ['Datos', describirFiltro(p.filtro)],
       ['Dirigida a', etiquetaDestinatario(p.destinatario)],
@@ -73,7 +74,7 @@ function vistaPeticion(p, contenedor) {
         : [h('label', { className: 'casilla' }, casilla, h('strong', {}, 'He leído y acepto este acuerdo')),
           h('div', { className: 'acciones' }, boton('Firmar acuerdo', firmar, { className: 'principal', id: 'firmar' }))]),
     h('section', { className: 'descargas' + (firmada ? '' : ' congelado'), 'aria-labelledby': 'desc-h' },
-      h('h3', { id: 'desc-h' }, firmada ? 'Descargas' : 'Descargas 🔒'),
+      h('h3', { id: 'desc-h', className: 'con-icono' }, !firmada && icono('candado'), firmada ? 'Descargas' : 'Descargas (bloqueadas)'),
       !firmada && h('p', { className: 'nota' }, 'Se habilitan al firmar el acuerdo de confidencialidad.'),
       h('div', { className: 'acciones' }, ARCHIVOS.map(([tipo, texto]) => boton(texto, () => descargarArchivo(p, tipo, repintar),
         { id: 'bajar-' + tipo, className: tipo === 'zip' ? 'principal' : '', disabled: !firmada }))),

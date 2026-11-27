@@ -5,17 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Sin recursos externos. 'unsafe-inline' y ws local son para Live Server. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; form-action 'none'">
-  <title>Prototipo R2 · Tus datos, tus derechos</title>
+  <title>SEAD-IESS · Servicio Ecuatoriano de Anonimización de Datos</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="src/ui/estilos.css">
 </head>
 <body>
   <a class="saltar" href="#contenido">Saltar al contenido</a>
   <div id="notificaciones" class="notificaciones"></div>
+  <p id="anuncio" class="solo-lector" aria-live="polite"></p>
+  <div class="tricolor" aria-hidden="true"></div>
   <header>
-    <div>
-      <h1>Tus datos, tus derechos</h1>
-      <p>Proteja datos de salud antes de compartirlos con un investigador.</p>
+    <div class="marca">
+      <span class="logo" role="img" aria-label="Logotipo de SEAD-IESS"></span>
+      <div>
+        <h1>SEAD-IESS</h1>
+        <p>Servicio Ecuatoriano de Anonimización de Datos</p>
+      </div>
     </div>
     <div id="vistas" class="vistas" role="group" aria-label="Secciones" hidden></div>
     <div class="acciones">
@@ -38,7 +43,7 @@
         <div id="progreso"></div>
         <ul id="menu"></ul>
         <button type="button" id="reiniciar" title="Empezar de nuevo" aria-label="Empezar de nuevo"><span class="texto-menu">Empezar de nuevo</span></button>
-        <p class="nota">Atajos: Alt + 0 tablero, Alt + 1 a 5 pasos</p>
+        <p class="nota atajos">Atajos: <kbd>Alt</kbd> + <kbd>1</kbd>…<kbd>5</kbd> pasos · <kbd>Alt</kbd> + <kbd>0</kbd> tablero</p>
       </nav>
       <div id="tirador-menu" class="tirador" role="separator" aria-orientation="vertical" aria-controls="menu-lateral" aria-label="Ancho del menú" tabindex="0" title="Arrastre para cambiar el ancho. Doble clic: ancho original"></div>
     </div>

@@ -1,4 +1,5 @@
 // Piezas de interfaz reutilizables. Nunca se usa innerHTML.
+import { icono } from './iconos.js';
 export function h(etiqueta, props = {}, ...hijos) {
   const e = document.createElement(etiqueta);
   for (const [k, v] of Object.entries(props)) {
@@ -33,12 +34,16 @@ export function tablaAdaptable(cabecera, filas) {
     h('tbody', {}, filas.map(f => h('tr', {}, f.map((c, i) => h('td', { 'data-etiqueta': etiquetas[i] }, c)))))));
 }
 
-// El estado siempre lleva icono y texto, no solo color. El icono va al final del texto.
-export const ICONOS = { ok: '✓', mal: '✗', aviso: '!', neutro: '•' };
+// El estado siempre lleva ícono dibujado y texto, no solo color. El ícono va al final del texto.
+export const iconoEstado = tipo => icono(tipo, 'icono-estado');
+
+// Datos clave de un elemento (petición, ejecución): etiqueta y valor, sin cabeceras «Dato / Valor».
+export const datosClave = filas => h('dl', { className: 'datos-clave' },
+  filas.map(([clave, valor]) => h('div', { className: 'dato' }, h('dt', {}, clave), h('dd', {}, valor))));
 export const etiqueta = (tipo, texto) =>
-  h('span', { className: 'etiqueta ' + tipo }, `${texto} ${ICONOS[tipo]}`);
+  h('span', { className: 'etiqueta ' + tipo }, texto, iconoEstado(tipo));
 export const aviso = (tipo, ...contenido) =>
-  h('div', { className: 'aviso ' + tipo }, contenido, h('strong', { className: 'icono', 'aria-hidden': 'true' }, ' ' + ICONOS[tipo]));
+  h('div', { className: 'aviso ' + tipo }, h('div', { className: 'aviso-texto' }, contenido), iconoEstado(tipo));
 
 // Avisos del sistema arriba a la derecha: verde = éxito, naranja = advertencia, rojo = error.
 // Los errores quedan hasta cerrarlos; los demás se van solos (se pausan con el puntero o el foco).
@@ -55,10 +60,11 @@ export function notificar(tipo, ...contenido) {
   const nota = h('div', { className: 'notificacion ' + tipo, role: tipo === 'mal' ? 'alert' : 'status', 'data-clave': clave,
     onmouseenter: () => clearTimeout(temporizador), onmouseleave: programar,
     onfocusin: () => clearTimeout(temporizador), onfocusout: programar },
-  h('div', { className: 'cuerpo' }, h('strong', {}, `${TITULO[tipo]} ${ICONOS[tipo]}`), h('div', {}, contenido)),
-  h('button', { type: 'button', className: 'cerrar', 'aria-label': 'Cerrar aviso', onclick: cerrar }, '×'));
+  h('div', { className: 'cuerpo' }, h('strong', {}, TITULO[tipo], iconoEstado(tipo)), h('div', {}, contenido)),
+  h('button', { type: 'button', className: 'cerrar', 'aria-label': 'Cerrar aviso', onclick: cerrar }, icono('cerrar')));
   zona.append(nota);
-  while (zona.children.length > 4) zona.firstElementChild.remove();
+  // Como máximo dos a la vez: más avisos tapan la pantalla y nadie los lee.
+  while (zona.children.length > 2) zona.firstElementChild.remove();
   programar();
   return nota;
 }
@@ -105,4 +111,36 @@ export function confirmar(titulo, mensaje, textoAceptar) {
     d.showModal();
     cancelar.focus();
   });
+}
+
+// Pestañas: muestran una parte del contenido a la vez para no obligar a desplazarse.
+// opciones: [[clave, texto, () => contenido]]. La elegida se recuerda aunque la vista se vuelva a pintar.
+const pestanasElegidas = {};
+export function pestanas(id, opciones, nombre) {
+  const valida = c => opciones.some(([k]) => k === c);
+  let elegida = valida(pestanasElegidas[id]) ? pestanasElegidas[id] : opciones[0][0];
+  const cuerpo = h('div', { role: 'tabpanel', id: id + '-panel', className: 'pestana-panel' });
+  const botones = opciones.map(([clave, texto]) => h('button', { type: 'button', role: 'tab', id: `${id}-${clave}`,
+    'aria-controls': id + '-panel', onclick: () => elegir(clave), onkeydown: tecla }, texto));
+  function elegir(clave, foco = false) {
+    elegida = clave;
+    pestanasElegidas[id] = clave;
+    botones.forEach((b, i) => {
+      const sel = opciones[i][0] === clave;
+      b.setAttribute('aria-selected', String(sel));
+      b.tabIndex = sel ? 0 : -1;
+      if (sel && foco) b.focus();
+    });
+    cuerpo.setAttribute('aria-labelledby', `${id}-${clave}`);
+    cuerpo.replaceChildren(h('div', {}, opciones.find(([k]) => k === clave)[2]()));
+  }
+  function tecla(e) {
+    const i = opciones.findIndex(([k]) => k === elegida);
+    const n = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: opciones.length - 1 }[e.key];
+    if (n === undefined) return;
+    e.preventDefault();
+    elegir(opciones[(n + opciones.length) % opciones.length][0], true);
+  }
+  elegir(elegida);
+  return h('div', { className: 'pestanas' }, h('div', { className: 'segmentos', role: 'tablist', 'aria-label': nombre }, botones), cuerpo);
 }

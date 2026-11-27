@@ -30,33 +30,9 @@ function medirLimite(disposicion, reiniciar) {
   return finales.length ? limiteAncho(Math.max(...finales), boton) : null;
 }
 
-// Trazos de 24 × 24, propios; sin librerías ni recursos externos.
-const TRAZOS = {
-  // Datos: base de datos
-  datos: ['M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z', 'M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6', 'M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'],
-  // Protección: escudo
-  proteccion: ['M12 3l8 3v6c0 4.6-3.3 7.8-8 9-4.7-1.2-8-4.4-8-9V6z', 'M8.5 12l2.5 2.5 4.5-4.5'],
-  // Resultados: gráfico de barras
-  resultados: ['M4 20h16', 'M7 20v-7', 'M12 20V5', 'M17 20v-10'],
-  // Trazabilidad: recorrido entre dos puntos
-  trazabilidad: ['M6 8.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', 'M18 20.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', 'M8.5 6H15a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h6.5'],
-  // Publicar: enviar
-  publicar: ['M21 3L10 14', 'M21 3l-7 18-4-7-7-4z'],
-  reiniciar: ['M4 12a8 8 0 1 0 2.5-5.8', 'M4 3v5h5'],
-  plegar: ['M13 6l-6 6 6 6', 'M19 6l-6 6 6 6'],
-};
-
-export function icono(nombre) {
-  const NS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(NS, 'svg');
-  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', class: 'icono-menu', 'aria-hidden': 'true', focusable: 'false' })) svg.setAttribute(k, v);
-  for (const d of TRAZOS[nombre] ?? []) {
-    const p = document.createElementNS(NS, 'path');
-    p.setAttribute('d', d);
-    svg.append(p);
-  }
-  return svg;
-}
+// Los íconos viven en iconos.js; se reexportan para no cambiar a quien ya los importa de aquí.
+import { icono } from './iconos.js';
+export { icono };
 
 // El ancho elegido es una preferencia de este navegador; si no se puede guardar, todo sigue igual.
 const leer = () => { try { return JSON.parse(localStorage.getItem(CLAVE)) ?? {}; } catch { return {}; } };
