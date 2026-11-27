@@ -5,23 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Sin recursos externos. 'unsafe-inline' y ws local son para Live Server. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; form-action 'none'">
-  <title>Prototipo R2 · Tus datos, tus derechos</title>
-  <link rel="icon" href="data:,">
+  <title>SEAD-IESS · Servicio Ecuatoriano de Anonimización de Datos</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="src/ui/img/favicon-32.png">
   <link rel="stylesheet" href="src/ui/estilos.css">
 </head>
 <body>
   <a class="saltar" href="#contenido">Saltar al contenido</a>
   <div id="notificaciones" class="notificaciones"></div>
+  <p id="anuncio" class="solo-lector" aria-live="polite"></p>
+  <div class="tricolor" aria-hidden="true"></div>
   <header>
-    <div>
-      <h1>Tus datos, tus derechos</h1>
-      <p>Proteja datos de salud antes de compartirlos con un investigador.</p>
+    <div class="marca">
+      <span class="logo" role="img" aria-label="Logotipo de SEAD-IESS"></span>
+      <div>
+        <h1>SEAD-IESS</h1>
+        <p>Servicio Ecuatoriano de Anonimización de Datos</p>
+      </div>
     </div>
     <div id="vistas" class="vistas" role="group" aria-label="Secciones" hidden></div>
     <div class="acciones">
       <div id="usuario" class="usuario" hidden></div>
-      <button type="button" id="ayuda-abrir">Ayuda y glosario ?</button>
-      <button type="button" id="reiniciar" hidden>Empezar de nuevo</button>
       <button type="button" id="cerrar-sesion" hidden>Cerrar sesión</button>
     </div>
   </header>
@@ -34,17 +37,25 @@
   <div id="doc-peticiones" class="tablero" hidden></div>
 
   <div class="disposicion" id="proceso" hidden>
-    <nav aria-label="Secciones del panel">
-      <div id="progreso"></div>
-      <ul id="menu"></ul>
-      <p class="nota">Atajos: Alt + 0 tablero, Alt + 1 a 5 pasos</p>
-    </nav>
+    <div class="lateral">
+      <nav id="menu-lateral" aria-label="Secciones del panel">
+        <button type="button" id="plegar-menu" aria-controls="menu-lateral"></button>
+        <div id="progreso"></div>
+        <ul id="menu"></ul>
+        <button type="button" id="reiniciar" title="Empezar de nuevo" aria-label="Empezar de nuevo"><span class="texto-menu">Empezar de nuevo</span></button>
+        <p class="nota atajos">Atajos: <kbd>Alt</kbd> + <kbd>1</kbd>…<kbd>5</kbd> pasos · <kbd>Alt</kbd> + <kbd>0</kbd> tablero</p>
+      </nav>
+      <div id="tirador-menu" class="tirador" role="separator" aria-orientation="vertical" aria-controls="menu-lateral" aria-label="Ancho del menú" tabindex="0" title="Arrastre para cambiar el ancho. Doble clic: ancho original"></div>
+    </div>
     <div class="principal-columna">
       <div id="siguiente"></div>
       <div id="ocupado" role="status" hidden></div>
       <main id="contenido" tabindex="-1"></main>
     </div>
   </div>
+
+  <!-- Ayuda disponible en todas las pantallas. -->
+  <button type="button" id="ayuda-abrir" class="ayuda-flotante" aria-label="Ayuda y glosario" title="Ayuda y glosario" aria-haspopup="dialog"><span aria-hidden="true">?</span></button>
 
   <dialog id="dialogo" aria-label="Confirmación"></dialog>
   <dialog id="detalle-ejecucion" class="dialogo-ancho" aria-labelledby="detalle-titulo"></dialog>
@@ -54,8 +65,8 @@
     <h3>Cómo funciona</h3>
     <ol>
       <li><strong>Comité de ética:</strong> crea la petición con el PDF aprobado, la persona autorizada (licencia del MSP o IESS) y los datos que necesita (periodo y diagnóstico CIE-10), y la envía a TI.</li>
-      <li><strong>TI:</strong> revisa la petición y el PDF. Puede devolverla con un motivo o procesarla: carga la base, configura la protección, revisa resultados y trazabilidad, y la publica.</li>
-      <li><strong>Doctor o personal autorizado:</strong> entra con su licencia y el teclado en pantalla, firma el acuerdo de confidencialidad y descarga los archivos.</li>
+      <li><strong>TI:</strong> revisa la petición y el PDF. Puede devolverla con un motivo o procesarla: carga la base, revisa y confirma lo que la IA propone para cada columna, configura la protección, revisa resultados y trazabilidad, y la publica.</li>
+      <li><strong>Doctor o personal autorizado:</strong> entra con su licencia y contraseña, firma el acuerdo de confidencialidad y descarga el CSV. Su huella SHA-256 queda registrada para verificar después que no fue modificado.</li>
       <li><strong>TI</strong> ve en Logs y en el Tablero todo lo que pasó: accesos, peticiones, firmas, descargas y errores.</li>
     </ol>
     <h3>Glosario</h3>
@@ -70,7 +81,8 @@
       <dt>Anonimizar</dt><dd>Procurar que nadie pueda identificar a la persona sin un esfuerzo desproporcionado. Siempre queda un riesgo.</dd>
       <dt>Petición</dt><dd>Pedido del comité de ética: a quién se entrega y qué datos (periodo y diagnóstico). Tiene un estado: enviada, devuelta, en proceso, lista, firmada, descargada.</dd>
       <dt>Logs</dt><dd>Bitácora de TI: inicios de sesión, peticiones, descargas y errores. No se puede borrar.</dd>
-      <dt>PTA</dt><dd>Protocolo Técnico de Anonimización: el informe de lo que se hizo y del riesgo.</dd>
+      <dt>PTA</dt><dd>Protocolo Técnico de Anonimización: el informe de lo que se hizo y del riesgo. Es de uso interno de TI.</dd>
+      <dt>Huella SHA-256</dt><dd>Código que identifica un archivo exacto. Si se cambia un solo carácter, la huella cambia. TI la usa para comprobar si un CSV fue modificado y de qué entrega salió.</dd>
     </dl>
     <button type="button" id="ayuda-cerrar" class="principal">Cerrar</button>
   </dialog>

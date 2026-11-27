@@ -1,7 +1,8 @@
 // Motor sin interfaz: carga, cohorte, anonimización, medición y trazabilidad.
 import { COLUMNAS, ALIAS, IDENTIFICADORES, CUASIIDENTIFICADORES, REGIONES, VERSION } from './config.js';
 import { parsearCSV } from './csv.js';
-import { FILTRO_ESTUDIO, coincide, esDelEstudio, etiquetaFiltro, enPeriodo, etiquetaPeriodo, validarPeriodo } from './cie10.js';
+import { FILTRO_ESTUDIO, coincide, esDelEstudio, etiquetaFiltro, enPeriodo, etiquetaPeriodo, validarPeriodo,
+  enRangoEdad, etiquetaEdad, validarEdad } from './cie10.js';
 
 const distintos = arr => new Set(arr).size;
 const personas = (filas, id) => distintos(filas.map(f => f[id]));
@@ -47,20 +48,22 @@ export function leer(texto) {
 
 // Cuántas personas daría cada filtro, con las mismas reglas de edad y periodo de la cohorte.
 export function contadorPorFiltro(filas) {
-  const porCodigo = new Map(); // código de 3 caracteres -> fecha_ingreso -> personas
+  const porCodigo = new Map(); // código de 3 caracteres -> «fecha|edad» -> personas
   for (const f of filas) {
-    if (Number(f.edad) < 18) continue;
     const codigo = f.diagnostico_cie10.slice(0, 3);
     if (!porCodigo.has(codigo)) porCodigo.set(codigo, new Map());
-    const porFecha = porCodigo.get(codigo);
-    if (!porFecha.has(f.fecha_ingreso)) porFecha.set(f.fecha_ingreso, new Set());
-    porFecha.get(f.fecha_ingreso).add(f.cedula);
+    const grupo = porCodigo.get(codigo), clave = `${f.fecha_ingreso}|${Number(f.edad)}`;
+    if (!grupo.has(clave)) grupo.set(clave, new Set());
+    grupo.get(clave).add(f.cedula);
   }
   const contar = filtro => {
     const personasFiltro = new Set();
-    for (const [codigo, porFecha] of porCodigo) {
+    for (const [codigo, grupo] of porCodigo) {
       if (!coincide(codigo, filtro)) continue;
-      for (const [fecha, ids] of porFecha) if (enPeriodo(fecha, filtro)) for (const id of ids) personasFiltro.add(id);
+      for (const [clave, ids] of grupo) {
+        const [fecha, edad] = clave.split('|');
+        if (enPeriodo(fecha, filtro) && enRangoEdad(edad, filtro)) for (const id of ids) personasFiltro.add(id);
+      }
     }
     return personasFiltro.size;
   };
@@ -70,19 +73,19 @@ export function contadorPorFiltro(filas) {
 }
 
 export function extraerCohorte(filas, filtro = FILTRO_ESTUDIO) {
-  const errorPeriodo = validarPeriodo(filtro);
+  const errorPeriodo = validarPeriodo(filtro) || validarEdad(filtro);
   if (errorPeriodo) throw new Error(errorPeriodo);
-  const excluidas = { diagnostico: 0, menor: 0, periodo: 0 };
+  const excluidas = { diagnostico: 0, edad: 0, periodo: 0 };
   const cohorte = filas.filter(f => {
     if (!coincide(f.diagnostico_cie10, filtro)) excluidas.diagnostico++;
-    else if (Number(f.edad) < 18) excluidas.menor++;
+    else if (!enRangoEdad(f.edad, filtro)) excluidas.edad++;
     else if (!enPeriodo(f.fecha_ingreso, filtro)) excluidas.periodo++;
     else return true;
     return false;
   });
   return {
     filas: cohorte, excluidas, entrada: filas.length,
-    filtro: { ...filtro }, etiquetaFiltro: etiquetaFiltro(filtro), periodo: etiquetaPeriodo(filtro), esEstudio: esDelEstudio(filtro),
+    filtro: { ...filtro }, etiquetaFiltro: etiquetaFiltro(filtro), periodo: etiquetaPeriodo(filtro), edad: etiquetaEdad(filtro), esEstudio: esDelEstudio(filtro),
     personas: personas(cohorte, 'cedula'), atenciones: cohorte.length,
   };
 }
@@ -267,7 +270,10 @@ function transformar(cohorte, config) {
     const orden = x => `${x.fecha_ingreso}|${x.id_atencion}`;
     if (!previa || orden(f) < orden(previa)) primera.set(f.cedula, f);
   }
-  const sinRegion = new Set(cohorte.filter(f => !REGIONES[f.provincia]).map(f => f.provincia));
+  if (config.ubicacion === 'provincia' && cohorte.some(f => f.provincia === undefined)) {
+    throw new Error('El archivo solo trae región: elija Región como ubicación (provincia no está disponible).');
+  }
+  const sinRegion = new Set(cohorte.filter(f => !(f.region ?? REGIONES[f.provincia])).map(f => f.provincia));
   // Una provincia no es un identificador directo, pero no se repite el valor por si la celda está mal.
   if (sinRegion.size) throw new Error(`Hay ${sinRegion.size} valor(es) de provincia sin región. Revise la columna provincia.`);
 
@@ -277,7 +283,7 @@ function transformar(cohorte, config) {
     _p: internas.get(f.cedula),
     grupo_edad: grupoEdad(Number(primera.get(f.cedula).edad), config.anchoEdad),
     sexo: f.sexo,
-    [columnaUbicacion(config)]: config.ubicacion === 'region' ? REGIONES[f.provincia] : f.provincia,
+    [columnaUbicacion(config)]: config.ubicacion === 'region' ? f.region ?? REGIONES[f.provincia] : f.provincia,
     [columnaFecha(config)]: f.fecha_ingreso.slice(0, config.fecha === 'mes' ? 7 : 4),
     tipo_atencion: f.tipo_atencion,
     diagnostico_cie10: f.diagnostico_cie10,
@@ -331,6 +337,19 @@ function codificar(filas, columnas) {
 
 function trazarColumnas(cohorte, transformadas, config, nombreOriginal) {
   return plan(config).map(c => {
+    if (cohorte[0][c.nombre] === undefined) {
+      const soloRegion = c.nombre === 'provincia' && cohorte[0].region !== undefined;
+      return {
+        columna_entrada: soloRegion ? nombreOriginal?.region ?? 'region' : 'no venía en el archivo',
+        variable: c.nombre, clasificacion: c.clasificacion, categoria_especial: c.categoria || 'Ninguna',
+        solicitada: c.solicitada, tecnica: soloRegion ? 'Conservar' : c.tecnica,
+        parametro: soloRegion ? 'Se recibió la región ya agrupada' : c.parametro,
+        columna_salida: c.salida ?? 'no sale', justificacion: c.justificacion,
+        valores_modificados: 0, distintos_antes: 0,
+        distintos_despues: soloRegion ? distintos(transformadas.map(f => f.region)) : 0,
+        estado: soloRegion ? 'Aplicada' : 'No venía en el archivo',
+      };
+    }
     const antes = cohorte.map(f => f[c.nombre]);
     // El código conserva una correspondencia uno a uno durante el proceso.
     const despues = !c.salida ? []
@@ -415,10 +434,10 @@ export function ejecutar(cohorte, config, nombreOriginal) {
     consulta: consultaEstudio(cohorte.filas, salida),
     conservadas: 100 * despues.personas / cohorte.personas,
     cohorte: { entrada: cohorte.entrada, excluidas: cohorte.excluidas, filtro: cohorte.filtro,
-      etiquetaFiltro: cohorte.etiquetaFiltro, periodo: cohorte.periodo, esEstudio: cohorte.esEstudio, personas: cohorte.personas, atenciones: cohorte.atenciones },
+      etiquetaFiltro: cohorte.etiquetaFiltro, periodo: cohorte.periodo, edad: cohorte.edad, esEstudio: cohorte.esEstudio, personas: cohorte.personas, atenciones: cohorte.atenciones },
     traza,
     recorrido: [
-      paso('Cohorte', `${cohorte.etiquetaFiltro}, 18 años o más, ${cohorte.periodo}`, null, cohorte.personas, cohorte.entrada, cohorte.atenciones),
+      paso('Cohorte', `${cohorte.etiquetaFiltro}, ${cohorte.edad}, ${cohorte.periodo}`, null, cohorte.personas, cohorte.entrada, cohorte.atenciones),
       ...recorrido,
     ],
     verificaciones,

@@ -1,7 +1,8 @@
 // Campos reutilizables: persona autorizada, teclado en pantalla y filtro de la petición.
 import { h, boton } from './dom.js';
 import { TIPOS_DESTINATARIO, validarDestinatario, ejemploDestinatario, normalizarId, formatearId, excedeLongitud } from '../motor/destinatario.js';
-import { CAPITULOS, bloquesDe, categoriasDe, PERIODO_MINIMO, anioActual, periodo, etiquetaPeriodo, etiquetaFiltro } from '../motor/cie10.js';
+import { CAPITULOS, bloquesDe, categoriasDe, PERIODO_MINIMO, anioActual, periodo, etiquetaPeriodo, etiquetaFiltro,
+  EDAD_MINIMA, EDAD_MAXIMA, rangoEdad, etiquetaEdad } from '../motor/cie10.js';
 
 // Tipo de personal + identificador con formato automático (licencia 4-4-6, prefijo IESS-).
 // Mientras se escribe solo se avisa si sobran dígitos; al terminar se valida todo.
@@ -10,10 +11,10 @@ export function campoPersona(prefijo, valor, { alEscribir, alConfirmar, extraErr
   const validar = completo => {
     let nivel = '', texto = '';
     if (valor.id) {
-      if (excedeLongitud(valor)) { nivel = 'aviso'; texto = validarDestinatario(valor) + ' !'; }
+      if (excedeLongitud(valor)) { nivel = 'aviso'; texto = validarDestinatario(valor); }
       else if (completo) {
         const err = validarDestinatario(valor) || extraError(valor);
-        if (err) { nivel = 'mal'; texto = err + ' ✗'; }
+        if (err) { nivel = 'mal'; texto = err; }
       }
     }
     mensaje.className = 'error-campo ' + nivel;
@@ -96,6 +97,9 @@ export function campoFiltro(filtro, alCambiar) {
   const anios = [];
   for (let a = anioActual(); a >= PERIODO_MINIMO; a--) anios.push(a);
   const categorias = categoriasDe(filtro.capitulo, filtro.bloque, []);
+  const e = rangoEdad(filtro);
+  const edades = [];
+  for (let a = EDAD_MINIMA; a <= EDAD_MAXIMA; a++) edades.push(a);
   return h('div', { className: 'campo-filtro' },
     h('div', { className: 'fila' },
       sel('Capítulo CIE-10', 'pf-capitulo', filtro.capitulo, CAPITULOS.map(c => [c.id, `${c.id} · ${c.desde}-${c.hasta} · ${c.nombre}`]),
@@ -105,10 +109,16 @@ export function campoFiltro(filtro, alCambiar) {
       sel('Categoría', 'pf-categoria', filtro.categoria, [['', 'Todas'], ...categorias.map(([c, n]) => [c, `${c} · ${n}`])],
         v => Object.assign(filtro, { categoria: v }),
         filtro.capitulo === 'V' ? '' : 'Fuera del capítulo V solo se puede pedir el capítulo o un grupo completo.')),
-    h('div', { className: 'fila' },
+    // Periodo y edad, lado a lado: cada uno con su nota debajo.
+    h('div', { className: 'fila periodo-edad' }, h('div', {}, h('div', { className: 'fila' },
       sel('Periodo desde el año', 'pf-desde', p.desde, anios.map(a => [a, String(a), a > p.hasta]), v => { filtro.desde = Number(v); }),
       sel('Periodo hasta el año', 'pf-hasta', p.hasta, anios.map(a => [a, String(a), a < p.desde]), v => { filtro.hasta = Number(v); })),
-    h('p', { className: 'nota' }, `Fecha de ingreso del 1 de enero de ${p.desde} al 31 de diciembre de ${p.hasta}. Solo personas de 18 años o más.`));
+    h('p', { className: 'nota' }, `Fecha de ingreso del 1 de enero de ${p.desde} al 31 de diciembre de ${p.hasta}.`)),
+    h('div', {}, h('div', { className: 'fila' },
+      sel('Edad desde (años)', 'pf-edad-desde', e.desde, edades.map(a => [a, String(a), e.hasta !== null && a > e.hasta]), v => { filtro.edadDesde = Number(v); }),
+      sel('Edad hasta (años)', 'pf-edad-hasta', e.hasta ?? '', [['', 'Sin límite (o más)'], ...edades.map(a => [a, String(a), a < e.desde])],
+        v => { filtro.edadHasta = v === '' ? null : Number(v); })),
+    h('p', { className: 'nota' }, `Edad cumplida a la fecha de la atención: ${etiquetaEdad(filtro)}. El mínimo es ${EDAD_MINIMA}: no se entregan datos de menores de edad (categoría especial, art. 25 LOPDP).`))));
 }
 
-export const describirFiltro = f => `${etiquetaFiltro(f)} · periodo ${etiquetaPeriodo(f)}`;
+export const describirFiltro = f => `${etiquetaFiltro(f)} · ${etiquetaEdad(f)} · periodo ${etiquetaPeriodo(f)}`;

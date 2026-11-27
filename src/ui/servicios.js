@@ -24,7 +24,7 @@ export function log(tipo, accion, detalle = '', extra = {}) {
 
 // Cada error explica cómo recuperarse.
 const SOLUCIONES = [
-  [/UTF-8/, 'Guarde el archivo como CSV UTF-8, separado por comas, y vuelva a elegirlo.'],
+  [/separador|encabezado|Excel|primera fila/, 'Use un archivo de texto con una fila de nombres de columna y una fila por atención.'],
   [/Faltan columnas|sin clasificar|repetidas/, 'Use un archivo con las 28 columnas del diccionario, sin cambiar sus nombres.'],
   [/Filas inválidas|comilla/, 'Corrija esas filas en el archivo original y vuelva a cargarlo.'],
   [/vacía|vacío|no tiene filas/, 'Revise que sea el archivo correcto y que el filtro de la petición tenga casos.'],

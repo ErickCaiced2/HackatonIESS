@@ -1,13 +1,13 @@
 // Panel según el rol. TI procesa aquí las peticiones del comité; las filas de personas viven solo en memoria.
 import { REFERENCIA, PROPIA } from '../motor/config.js';
-import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, plan, validarConfig, ANCHO_EDAD, gruposDeEdad } from '../motor/motor.js';
+import { extraerCohorte, contadorPorFiltro, medir, ejecutar, plan, validarConfig, ANCHO_EDAD, gruposDeEdad } from '../motor/motor.js';
 import { aCSV } from '../motor/csv.js';
 import { FILTRO_ESTUDIO, nombreCIE10 } from '../motor/cie10.js';
 import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML, BORRADOR_RIESGO, BORRADOR_TITULAR } from '../motor/entregables.js';
 import { entradaDeEjecucion, filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal } from '../motor/registro.js';
 import { etiquetaDestinatario } from '../motor/destinatario.js';
 import { ROLES } from '../motor/usuarios.js';
-import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar } from './dom.js';
+import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar, iconoEstado, datosClave, pestanas } from './dom.js';
 import { registro, peticiones, sesion, log, mostrarError, fechaHora, fechaCorta } from './servicios.js';
 import { describirFiltro } from './campos.js';
 import { guardarArchivo } from './archivos.js';
@@ -15,10 +15,13 @@ import { pintarLogin } from './sesion.js';
 import { pintarComite } from './comite.js';
 import { pintarDoctor, reiniciarDoctor } from './doctor.js';
 import { pintarTiPeticiones, pintarTiLogs, pintarTiTablero } from './ti.js';
+import { icono, iniciarMenuLateral } from './menu-lateral.js';
+import { analizar, decisionesIniciales, estandarizar } from '../ia/estandarizar.js';
+import { panelRevision } from './revision.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
 const inicial = () => ({
-  datos: null, archivo: '', cohorte: null, antes: null, ...sinResultados(),
+  datos: null, revision: null, archivo: '', cohorte: null, antes: null, ...sinResultados(),
   config: { ...REFERENCIA }, propia: { ...PROPIA }, filtro: { ...FILTRO_ESTUDIO },
   deshacer: null, desactualizado: false,
   peticion: null, // petición del comité que TI está procesando
@@ -26,6 +29,8 @@ const inicial = () => ({
 let S = inicial();
 let pestana = 'recorrido', ocupado = false;
 let vista = '';
+let paso = 'datos'; // paso del procesamiento que se muestra
+let menuLateral = null;
 
 const $ = id => document.getElementById(id);
 
@@ -36,7 +41,7 @@ function trabajar(mensaje, fn, destino) {
   if (ocupado) return;
   ocupado = true;
   mostrarError('');
-  $('ocupado').textContent = mensaje + ' ⏳';
+  $('ocupado').textContent = mensaje;
   $('ocupado').hidden = false;
   setTimeout(async () => { // deja pintar el indicador antes del cálculo
     let bien = false;
@@ -48,11 +53,18 @@ function trabajar(mensaje, fn, destino) {
   }, 30);
 }
 
+// Vistas por rol o pasos del procesamiento. Cada paso se muestra solo; el cambio se anuncia al lector de pantalla.
 function irA(id) {
   if (VISTAS_ID.has(id)) { verVista(id); $(id)?.querySelector('h2')?.focus(); return; }
-  verVista('proceso');
-  const seccion = $(id);
-  seccion?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  const i = SECCIONES.findIndex(([s]) => s === id);
+  if (i < 0) return;
+  const cambia = paso !== id || vista !== 'proceso';
+  paso = id;
+  if (vista !== 'proceso') verVista('proceso'); else pintar();
+  if (cambia) {
+    $('anuncio').textContent = `Paso ${i + 1} de ${SECCIONES.length}: ${SECCIONES[i][1].replace(/^\d+\.\s*/, '')}`;
+    globalThis.scrollTo?.({ top: 0, behavior: 'auto' });
+  }
   $(id + '-h')?.focus?.({ preventScroll: true });
 }
 
@@ -68,15 +80,24 @@ async function cargar(entrada) {
   const archivo = entrada.files[0];
   if (!archivo) return;
   if (!await sePuedeDescartar('cargar otro archivo')) { entrada.value = ''; return; }
-  trabajar('Leyendo y validando el archivo…', async () => {
-    let texto;
-    try { texto = new TextDecoder('utf-8', { fatal: true }).decode(await archivo.arrayBuffer()); }
-    catch { throw new Error('El archivo no se pudo leer como UTF-8.'); }
-    const datos = leer(texto); // si falla, se conserva lo anterior
-    S = { ...inicial(), peticion: S.peticion, filtro: { ...S.peticion.filtro }, datos, archivo: archivo.name };
-    log('peticion', 'Base de datos cargada', `${archivo.name} · ${num(datos.filas.length)} atenciones`, { referencia: S.peticion.id });
-    notificar('ok', `Archivo válido: ${num(datos.filas.length)} atenciones de ${num(datos.personas)} personas.`);
-  });
+  trabajar('La IA está leyendo y reconociendo las columnas…', async () => {
+    const bytes = await archivo.arrayBuffer();
+    let texto, codificacion = 'UTF-8';
+    try { texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch { texto = new TextDecoder('windows-1252').decode(bytes); codificacion = 'Windows-1252'; }
+    const analisis = analizar(texto.replace(/^\uFEFF/, '')); // si falla, se conserva lo anterior
+    S = { ...inicial(), peticion: S.peticion, filtro: { ...S.peticion.filtro }, archivo: archivo.name, revision: { analisis, decisiones: decisionesIniciales(analisis), codificacion } };
+  }, 'datos');
+}
+
+function confirmarEstandarizacion() {
+  trabajar('Estandarizando los datos…', () => {
+    const res = estandarizar(S.revision.analisis, S.revision.decisiones);
+    if (!res.datos) throw new Error(res.problemas.join(' '));
+    S.datos = res.datos;
+    S.revision = null;
+    log('peticion', 'Base de datos cargada', `${S.archivo} · ${num(res.datos.filas.length)} atenciones`, { referencia: S.peticion.id });
+  }, 'datos');
 }
 
 async function empezarDeNuevo() {
@@ -93,19 +114,34 @@ function filtroPeticion() {
   S.contar ??= contadorPorFiltro(S.datos.filas);
   return h('div', { className: 'filtro-peticion' },
     h('p', {}, h('strong', {}, `Filtro de la petición ${S.peticion.id}: `), describirFiltro(S.filtro)),
-    h('p', { className: 'nota' }, `En este archivo hay ${num(S.contar(S.filtro))} personas de 18 años o más con este filtro. Lo definió el comité de ética y no se cambia aquí.`));
+    h('p', { className: 'nota' }, `En este archivo hay ${num(S.contar(S.filtro))} personas con este filtro (diagnóstico, edad y periodo). Lo definió el comité de ética y no se cambia aquí.`));
 }
 
 function panelDatos() {
   if (!S.peticion) return [bloqueo('Elija una petición en «Peticiones» para procesarla.', 'ti-peticiones')];
   const c = S.cohorte, d = S.datos;
   return [
-    aviso('aviso', `Procesando la petición ${S.peticion.id} para ${etiquetaDestinatario(S.peticion.destinatario)}.`),
-    h('label', { className: 'archivo' }, d ? 'Cambiar archivo (CSV)' : 'Elija el archivo CSV de atenciones',
-      h('input', { type: 'file', id: 'archivo', accept: '.csv', onchange: e => cargar(e.target) })),
-    h('p', { className: 'nota' }, 'El archivo se procesa en este equipo; la aplicación no lo envía a ningún servidor.'),
-    d && aviso('ok', `«${S.archivo}» es válido: ${num(d.filas.length)} atenciones de ${num(d.personas)} personas.`),
+    h('p', { className: 'contexto-paso' }, 'Petición ', h('strong', {}, S.peticion.id), ` · para ${etiquetaDestinatario(S.peticion.destinatario)} · ${describirFiltro(S.peticion.filtro)}`),
+    // Con un archivo ya cargado, el selector se reduce a una línea.
+    d || S.revision
+      ? h('div', { className: 'archivo-cargado' },
+        h('span', {}, 'Archivo: ', h('strong', {}, S.archivo)),
+        h('label', { className: 'boton-archivo' }, 'Cambiar archivo',
+          h('input', { type: 'file', id: 'archivo', accept: '.csv,.tsv,.txt', className: 'solo-lector', onchange: e => cargar(e.target) })),
+        h('small', {}, 'Se procesa en este equipo; no se envía a ningún servidor.'))
+      : [h('label', { className: 'archivo' }, 'Elija el archivo de atenciones (CSV, TSV o texto delimitado)',
+        h('input', { type: 'file', id: 'archivo', accept: '.csv,.tsv,.txt', onchange: e => cargar(e.target) })),
+      h('p', { className: 'nota' }, 'El archivo se procesa en este equipo; la aplicación no lo envía a ningún servidor.')],
+    S.revision && panelRevision(S.revision, pintar, confirmarEstandarizacion),
+    d && aviso('ok', `«${S.archivo}» quedó estandarizado: ${num(d.filas.length)} atenciones de ${num(d.personas)} personas.`),
     d && d.avisos.map(a => h('p', { className: 'nota' }, 'Nota: ' + a)),
+    d && detalle('estandarizacion', 'Ver cómo se estandarizó el archivo',
+      tabla(['Columna de origen', 'Se tomó como', 'Quién decidió'],
+        d.estandarizacion.asignaciones.map(x => [x.columna_original, x.campo === 'desconocida' ? 'se elimina' : x.campo, x.decidio])),
+      d.estandarizacion.cambios_de_formato.length
+        ? tabla(['Campo', 'Formato aplicado', 'Valores cambiados'], d.estandarizacion.cambios_de_formato.map(x => [x.campo, x.regla, num(x.modificados)]))
+        : h('p', {}, 'No fue necesario cambiar ningún valor.'),
+      d.estandarizacion.derivados.map(x => h('p', {}, `Se calculó «${x.campo}» desde: ${x.desde}.`))),
     d && filtroPeticion(),
     d && !c && boton('Extraer las personas de la petición', () => trabajar('Extrayendo la cohorte y midiendo el riesgo inicial…', () => {
       const cohorte = extraerCohorte(S.datos.filas, S.filtro);
@@ -113,8 +149,7 @@ function panelDatos() {
       cohorte.esEstudio = true; // usa exactamente el filtro de la petición
       S.cohorte = cohorte;
       S.antes = medir(cohorte.filas, 'cedula');
-      notificar('ok', `Cohorte lista: ${num(cohorte.personas)} personas y ${num(cohorte.atenciones)} atenciones.`);
-    }), { className: 'principal' }),
+    }), { className: 'principal', id: 'extraer' }),
     c && h('div', { className: 'indicadores' },
       indicador('Personas seleccionadas', num(c.personas), 'Es la «cohorte» de la petición'),
       indicador('Atenciones', num(c.atenciones), 'Una persona puede tener varias'),
@@ -123,7 +158,7 @@ function panelDatos() {
     c && detalle('exclusiones', 'Ver por qué se excluyeron atenciones', tabla(['Concepto', 'Atenciones'], [
       ['Atenciones en el archivo', num(c.entrada)],
       [`− Diagnóstico fuera del filtro (${c.etiquetaFiltro})`, num(c.excluidas.diagnostico)],
-      ['− Menor de 18 años en la fecha de atención', num(c.excluidas.menor)],
+      [`− Edad fuera del rango (${c.edad}) en la fecha de atención`, num(c.excluidas.edad)],
       [`− Fuera del periodo ${c.periodo}`, num(c.excluidas.periodo)],
       ['= Atenciones en la cohorte', num(c.atenciones)]]),
     h('p', {}, `Identificadores presentes ahora: ${ident(S.antes.identificadores)}.`)),
@@ -133,7 +168,7 @@ function panelDatos() {
 function indicador(nombre, valor, explicacion, cumple) {
   return h('div', { className: 'indicador' + (cumple === undefined ? '' : cumple ? ' ok' : ' mal') },
     h('span', {}, nombre), h('b', {}, valor),
-    h('small', {}, cumple === undefined ? explicacion : `${cumple ? 'Cumple ✓' : 'No cumple ✗'}. ${explicacion}`));
+    h('small', {}, cumple === undefined ? explicacion : `${cumple ? 'Cumple' : 'No cumple'}. ${explicacion}`));
 }
 
 // ---------- 2. Protección ----------
@@ -169,6 +204,7 @@ function anonimizar() {
   const solicitadoEn = new Date().toISOString(); // momento en que el operador pide la anonimización
   trabajar('Protegiendo los datos y midiendo el resultado…', () => {
     S.r = ejecutar(S.cohorte, S.config, S.datos.nombreOriginal);
+    S.r.estandarizacion = S.datos.estandarizacion;
     S.r.destinatario = null; // se registra al publicar
     S.r.peticionId = S.peticion.id;
     registro.agregar(entradaDeEjecucion(S.r, { archivo: S.archivo, solicitadoEn }));
@@ -176,8 +212,6 @@ function anonimizar() {
     S.historial[S.config.tipo] = S.r;
     S.desactualizado = false;
     S.deshacer = null;
-    if (S.r.apto) notificar('ok', 'La ejecución es APTA. Los resultados están listos.');
-    else notificar('mal', 'La ejecución NO es apta: ' + S.r.verificaciones.filter(v => !v.ok).map(v => v.id).join(', ') + '.');
   }, 'resultados');
 }
 
@@ -215,12 +249,12 @@ function panelProteccion() {
       opcion('propia', 'Propia (para entregar)', 'Añade protección del diagnóstico y oculta estancias muy largas.')),
     detalle('parametros', fija ? 'Ver los parámetros (fijos en la referencia)' : 'Ajustar parámetros',
       h('div', { className: 'fila' },
-        selector('Grupo mínimo (k)', 'k', [5, 6, 8, 10, 15].map(n => [n, `${n} personas`]), 'Cada persona se confunde con otras. Más alto protege más.'),
+        selector('Grupo mínimo (k)', 'k', [5, 6, 8, 10, 15].map(n => [n, `${n} personas`]), 'Tamaño del grupo más pequeño de personas con la misma edad, sexo y región. Con 5, cada persona se confunde con al menos 4 más.'),
         contador('Ancho de los rangos de edad', 'anchoEdad', { ...ANCHO_EDAD, unidad: 'años' },
           `Más años protegen más; menos dan más detalle. Entre ${ANCHO_EDAD.min} y ${ANCHO_EDAD.max}. Grupos: ${gruposDeEdad(c.anchoEdad).join(' · ')}`),
         selector('Ubicación', 'ubicacion', [['region', 'Región'], ['provincia', 'Provincia']], 'Región agrupa a más personas.'),
         selector('Fecha', 'fecha', [['mes', 'Año y mes'], ['anio', 'Solo año']], 'El estudio pide año y mes.'),
-        selector('Diagnósticos distintos por grupo (l)', 'l', [[1, 'No exigir'], [2, 'Al menos 2'], [3, 'Al menos 3']], 'Evita deducir la enfermedad de un grupo.'),
+        selector('Diagnósticos distintos por grupo (l)', 'l', [[1, 'No exigir'], [2, 'Al menos 2'], [3, 'Al menos 3']], 'Cuántos diagnósticos distintos debe tener cada grupo. Con 2 o más, nadie deduce la enfermedad solo por saber a qué grupo pertenece una persona.'),
         selector('Estancias largas', 'topeEstancia', [[null, 'Mostrar exactas'], [15, '15 días o más juntas'], [30, '30 días o más juntas'], [60, '60 días o más juntas']], 'Evita que un valor raro señale a alguien.')),
       !fija && boton('Restablecer valores recomendados', () => {
         guardarParaDeshacer();
@@ -235,7 +269,7 @@ function panelProteccion() {
     h('div', { className: 'acciones' },
       boton(S.r ? 'Volver a proteger y medir' : 'Proteger los datos y medir', anonimizar,
         { className: 'principal', id: 'anonimizar', disabled: errores.length > 0 }),
-      S.deshacer && boton('Deshacer el último cambio ↶', () => {
+      S.deshacer && boton([icono('deshacer'), 'Deshacer el último cambio'], () => {
         Object.assign(S, S.deshacer, { deshacer: null }); pintar();
         notificar('ok', 'Se deshizo el último cambio.');
       })),
@@ -254,43 +288,47 @@ function panelResultados() {
   return [
     !r.cohorte.esEstudio && aviso('aviso', `Exploración con ${r.cohorte.etiquetaFiltro}: no se puede entregar.`),
     h('div', { className: 'veredicto ' + (r.apto ? 'ok' : 'mal') },
-      h('strong', {}, r.apto ? 'APTO para continuar ✓' : 'NO APTO ✗'),
+      h('strong', {}, r.apto ? 'APTO para continuar' : 'NO APTO', iconoEstado(r.apto ? 'ok' : 'mal')),
       h('span', {}, r.apto ? `Pasó los controles medidos con la configuración ${r.config.tipo}. No significa riesgo cero.`
         : 'Falló: ' + fallas.map(v => `${v.id} ${v.texto}`).join('; ') + '. Cambie la configuración y vuelva a medir.')),
-    h('div', { className: 'indicadores' },
-      indicador('Grupo más pequeño (k)', d.kMin, `Antes: ${a.kMin}. Meta: 5 o más`, d.kMin >= 5),
-      indicador('Personas únicas', pct(d.pctUnicas), `Antes: ${pct(a.pctUnicas)}. Meta: 0 %`, d.pctUnicas === 0 && d.personas > 0),
-      indicador('Identificadores detectados', d.identificadores.columnas + d.identificadores.texto, `Antes: ${ident(a.identificadores)}`, sinIdent(d)),
-      indicador('Personas conservadas', pct(r.conservadas), `${num(d.personas)} de ${num(a.personas)}. Mide utilidad`)),
-    d.homogeneos.length > 0 && aviso('aviso', `${d.homogeneos.length} grupo(s) comparten un solo diagnóstico: se podría deducir.`),
-    h('h3', {}, 'Antes y después (tabla para el jurado)'),
-    tabla(['Indicador', 'Antes', 'Después'], [
-      ['Personas', num(a.personas), num(d.personas)],
-      ['Atenciones', num(a.atenciones), num(d.atenciones)],
-      ['Grupo más pequeño, k (meta: 5 o más)', a.kMin, d.kMin],
-      ['Personas únicas (meta: 0 %)', pct(a.pctUnicas), pct(d.pctUnicas)],
-      ['Identificadores que quedan (meta: 0)', ident(a.identificadores), ident(d.identificadores)],
-      ['Personas conservadas', '100 %', pct(r.conservadas)],
-      ['Cambio en la consulta del estudio: máximo / promedio', '—', `${pct(r.consulta.maximo)} / ${pct(r.consulta.promedio)}`]]),
-    referencia && propia && [h('h3', {}, 'Comparación de configuraciones'),
-      tabla(['Configuración', 'Personas', 'k', 'Conservadas', 'Cambio máx. / prom.', 'Grupos con 1 diagnóstico'],
-        [['Referencia', ...resumen(referencia)], ['Propia', ...resumen(propia)]])],
-    detalle('consulta', 'Ver personas por región y sexo (consulta del estudio)',
-      tabla(['Región · sexo', 'Antes', 'Después', 'Diferencia'],
-        r.consulta.celdas.map(c => [c.celda, num(c.antes), num(c.despues), pct(c.cambio)]))),
-    detalle('homogeneos', `Ver grupos con un solo diagnóstico (${d.homogeneos.length})`,
-      h('p', { className: 'nota' }, 'Información solo para el operador. No se envía al investigador.'),
-      d.homogeneos.length
-        ? tabla(['Grupo', 'Personas', 'Diagnóstico'], d.homogeneos.map(g => [g.combinacion, g.personas, `${g.diagnostico} · ${nombreCIE10(g.diagnostico)}`]))
-        : h('p', {}, 'No se detectaron.')),
-    detalle('controles', 'Ver controles para los casos especiales',
-      tabla(['Control', 'Cantidad'], [
-        ['Atenciones excluidas por menor de 18 (dentro del filtro de diagnóstico)', num(r.cohorte.excluidas.menor)],
-        ['Personas en el grupo 80+ en la salida', num(new Set(r.salida.filter(f => f.grupo_edad === '80+').map(f => f.id_paciente_estudio)).size)],
-        ...r.recorrido.filter(o => o.operacion.startsWith('Supresión'))
-          .map(o => [`Personas retiradas: ${o.operacion.toLowerCase()} (vuelta ${o.vuelta})`, num(o.personasAntes - o.personasDespues)]),
-        ['Celdas de texto con identificador antes', num(a.identificadores.texto)]])),
-    h('p', { className: 'nota' }, 'k no incluye año y mes, tipo de atención, diagnóstico ni estancia. Quien conozca esos datos podría distinguir a una persona.'),
+    pestanas('resultados', [
+      ['resumen', 'Resumen', () => [
+        h('div', { className: 'indicadores' },
+          indicador('Grupo más pequeño (k)', d.kMin, `Antes: ${a.kMin}. Meta: 5 o más`, d.kMin >= 5),
+          indicador('Personas únicas', pct(d.pctUnicas), `Antes: ${pct(a.pctUnicas)}. Meta: 0 %`, d.pctUnicas === 0 && d.personas > 0),
+          indicador('Identificadores detectados', d.identificadores.columnas + d.identificadores.texto, `Antes: ${ident(a.identificadores)}`, sinIdent(d)),
+          indicador('Personas conservadas', pct(r.conservadas), `${num(d.personas)} de ${num(a.personas)}. Mide utilidad`)),
+        d.homogeneos.length > 0 && aviso('aviso', `${d.homogeneos.length} grupo(s) comparten un solo diagnóstico: se podría deducir. Véalos en «Detalle».`),
+        h('p', { className: 'nota' }, 'k no incluye año y mes, tipo de atención, diagnóstico ni estancia. Quien conozca esos datos podría distinguir a una persona.')]],
+      ['comparacion', 'Antes y después', () => [
+        tabla(['Indicador', 'Antes', 'Después'], [
+          ['Personas', num(a.personas), num(d.personas)],
+          ['Atenciones', num(a.atenciones), num(d.atenciones)],
+          ['Grupo más pequeño, k (meta: 5 o más)', a.kMin, d.kMin],
+          ['Personas únicas (meta: 0 %)', pct(a.pctUnicas), pct(d.pctUnicas)],
+          ['Identificadores que quedan (meta: 0)', ident(a.identificadores), ident(d.identificadores)],
+          ['Personas conservadas', '100 %', pct(r.conservadas)],
+          ['Cambio en la consulta del estudio: máximo / promedio', '—', `${pct(r.consulta.maximo)} / ${pct(r.consulta.promedio)}`]]),
+        referencia && propia && [h('h3', {}, 'Comparación de configuraciones'),
+          tabla(['Configuración', 'Personas', 'k', 'Conservadas', 'Cambio máx. / prom.', 'Grupos con 1 diagnóstico'],
+            [['Referencia', ...resumen(referencia)], ['Propia', ...resumen(propia)]])]]],
+      ['detalle', 'Detalle', () => [
+        detalle('consulta', 'Personas por región y sexo (consulta del estudio)',
+          tabla(['Región · sexo', 'Antes', 'Después', 'Diferencia'],
+            r.consulta.celdas.map(c => [c.celda, num(c.antes), num(c.despues), pct(c.cambio)]))),
+        detalle('homogeneos', `Grupos con un solo diagnóstico (${d.homogeneos.length})`,
+          h('p', { className: 'nota' }, 'Información solo para el operador. No se envía al investigador.'),
+          d.homogeneos.length
+            ? tabla(['Grupo', 'Personas', 'Diagnóstico'], d.homogeneos.map(g => [g.combinacion, g.personas, `${g.diagnostico} · ${nombreCIE10(g.diagnostico)}`]))
+            : h('p', {}, 'No se detectaron.')),
+        detalle('controles', 'Controles para los casos especiales',
+          tabla(['Control', 'Cantidad'], [
+            [`Atenciones excluidas por edad fuera de ${r.cohorte.edad} (dentro del filtro de diagnóstico)`, num(r.cohorte.excluidas.edad)],
+            ['Personas en el grupo 80+ en la salida', num(new Set(r.salida.filter(f => f.grupo_edad === '80+').map(f => f.id_paciente_estudio)).size)],
+            ...r.recorrido.filter(o => o.operacion.startsWith('Supresión'))
+              .map(o => [`Personas retiradas: ${o.operacion.toLowerCase()} (vuelta ${o.vuelta})`, num(o.personasAntes - o.personasDespues)]),
+            ['Celdas de texto con identificador antes', num(a.identificadores.texto)]]))]],
+    ], 'Vistas de los resultados'),
   ];
 }
 
@@ -337,11 +375,11 @@ const listoParaPublicar = () => requisitos().every(([, ok]) => ok);
 
 // Lleva al campo que corrige un requisito, le da el foco y lo resalta un momento.
 function irACampo([id, seccion, desplegable]) {
-  verVista('proceso');
+  irA(seccion);
   const d = desplegable && $(desplegable);
   if (d && !d.open) d.open = true;
   const campo = $(id);
-  if (!campo || campo.disabled) { irA(seccion); return; }
+  if (!campo || campo.disabled) return;
   campo.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   campo.focus({ preventScroll: true });
   const caja = campo.closest('label, .campo, fieldset') ?? campo;
@@ -357,15 +395,17 @@ async function publicar() {
   try {
     const csv = aCSV(r.columnas, r.salida), config = configuracionJSON(r);
     r.destinatario = { ...p.destinatario };
-    const traza = await trazabilidadJSON(r, await sha256(csv), await sha256(config));
+    const huellaCSV = await sha256(csv);
+    const traza = await trazabilidadJSON(r, huellaCSV, await sha256(config));
     // Se guardan los archivos; el acuerdo y «entregado a» se agregan cuando el destinatario firma y descarga.
-    await guardarArchivo('entrega:' + p.id, { base: r.id, ejecucionId: r.id, csv, config, traza,
+    await guardarArchivo('entrega:' + p.id, { base: r.id, ejecucionId: r.id, csv, config, traza, sha256CSV: huellaCSV,
       pta: ptaHTML(r, { riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR }) });
     registro.peticion(r.id, p.destinatario, new Date().toISOString());
-    peticiones.publicar(p.id, { id: r.id, fecha: r.fecha, configuracion: r.config.tipo, kDespues: r.despues.kMin, personas: r.despues.personas }, u.usuario);
-    log('peticion', 'Publicada al destinatario', `${r.id} para ${etiquetaDestinatario(p.destinatario)}`, { referencia: p.id });
+    peticiones.publicar(p.id, { id: r.id, fecha: r.fecha, configuracion: r.config.tipo, kDespues: r.despues.kMin, personas: r.despues.personas, sha256CSV: huellaCSV }, u.usuario);
+    log('peticion', 'Publicada al destinatario', `${r.id} para ${etiquetaDestinatario(p.destinatario)} · CSV SHA-256 ${huellaCSV}`, { referencia: p.id });
     notificar('ok', `Petición ${p.id} publicada. ${etiquetaDestinatario(p.destinatario)} ya puede firmar y descargar.`);
     S = inicial();
+    paso = 'datos';
     pintar();
     verVista('ti-peticiones');
   } catch (e) { mostrarError(e.message, 'Publicar petición'); }
@@ -379,7 +419,7 @@ function panelPublicar() {
     : h('button', { type: 'button', className: 'requisito-pendiente', onclick: () => irACampo(destino), 'aria-label': `${texto}: falta. Ir al campo` },
       etiqueta('mal', 'Falta'), ' ', h('span', {}, texto), h('span', { className: 'ir', 'aria-hidden': 'true' }, ' Ir al campo →')))));
   return [
-    tablaAdaptable(['Dato', 'Valor'], [
+    datosClave([
       ['Petición', p.id],
       ['Destinatario', etiquetaDestinatario(p.destinatario)],
       ['Datos pedidos', describirFiltro(p.filtro)],
@@ -388,17 +428,19 @@ function panelPublicar() {
     h('h3', {}, 'Antes de publicar'), lista,
     h('div', { className: 'acciones' },
       boton('Publicar al destinatario', publicar, { className: 'principal', id: 'publicar-boton', disabled: !listoParaPublicar() })),
-    h('p', { className: 'nota' }, 'Al publicar, solo el destinatario puede ver la petición, firmar el acuerdo de confidencialidad y descargar los archivos. Los datos de personas no salen de este navegador.'),
+    h('p', { className: 'nota' }, 'Al publicar, solo el destinatario puede ver la petición, firmar el acuerdo de confidencialidad y descargar el CSV. La configuración, la trazabilidad y el PTA quedan para TI. La huella SHA-256 del CSV se guarda para comprobar después si un archivo fue modificado o de qué entrega salió.'),
   ];
 }
 
 // ---------- Estructura del panel ----------
-const bloqueo = (mensaje, destino) => h('div', { className: 'vacio' }, h('p', {}, mensaje + ' 🔒'),
-  boton('Ir al paso necesario', () => irA(destino)));
+// Paso que todavía no se puede hacer: dice por qué y lleva al paso que falta.
+const bloqueo = (mensaje, destino) => h('div', { className: 'vacio' }, h('p', { className: 'con-icono' }, icono('candado'), mensaje),
+  boton(`Ir a ${nombreDestino(destino)}`, () => irA(destino), { className: 'principal' }));
+const nombreDestino = id => SECCIONES.find(([s]) => s === id)?.[1] ?? { 'ti-peticiones': 'Peticiones', tablero: 'Tablero' }[id] ?? id;
 
 const SECCIONES = [
   ['datos', '1. Datos', 'Cargue la base de datos de la petición y extraiga las personas que pide.', panelDatos,
-    () => (S.cohorte ? ['ok', 'Listo'] : S.datos ? ['aviso', 'Falta extraer'] : ['neutro', 'Por hacer'])],
+    () => (S.cohorte ? ['ok', 'Listo'] : S.datos ? ['aviso', 'Falta extraer'] : S.revision ? ['aviso', 'Revisar columnas'] : ['neutro', 'Por hacer'])],
   ['proteccion', '2. Protección', 'Decida cómo ocultar la identidad de las personas.', panelProteccion,
     () => (S.r ? ['ok', 'Listo'] : !S.cohorte ? ['neutro', 'Bloqueado'] : S.desactualizado ? ['aviso', 'Volver a medir'] : ['aviso', 'Por hacer'])],
   ['resultados', '3. Resultados', '¿Se puede reconocer a alguien? ¿Los datos siguen siendo útiles?', panelResultados,
@@ -411,6 +453,7 @@ const SECCIONES = [
 
 function siguientePaso() {
   if (!S.peticion) return ['Elija una petición para procesar.', 'ti-peticiones'];
+  if (S.revision) return ['Revise lo que propuso la IA y confirme.', 'datos'];
   if (!S.datos) return ['Cargue la base de datos (CSV) de la petición.', 'datos'];
   if (!S.cohorte) return ['Extraiga las personas de la petición.', 'datos'];
   if (!S.r) return ['Configure la protección y mida el resultado.', 'proteccion'];
@@ -421,14 +464,26 @@ function siguientePaso() {
 function pintarNavegacion() {
   const [texto, destino] = siguientePaso();
   const hechos = SECCIONES.filter(([, , , , estado]) => estado()[0] === 'ok').length;
-  $('progreso').replaceChildren(h('label', {}, `Avance: ${hechos} de ${SECCIONES.length}`,
-    h('progress', { max: SECCIONES.length, value: hechos })));
-  $('menu').replaceChildren(...SECCIONES.map(([id, titulo, , , estado]) =>
-    h('li', {}, h('a', { href: '#' + id, onclick: e => { e.preventDefault(); irA(id); } },
-      h('span', {}, titulo), etiqueta(...estado())))));
-  $('siguiente').replaceChildren(h('span', {}, h('strong', {}, 'Siguiente paso: '), texto),
-    boton('Ir', () => irA(destino), { 'aria-label': 'Ir al siguiente paso' }));
-  $('reiniciar').disabled = !S.datos;
+  const avance = `Avance: ${hechos} de ${SECCIONES.length}`;
+  $('progreso').replaceChildren(h('label', { title: avance },
+    h('span', { className: 'texto-menu' }, avance),
+    h('span', { className: 'avance-corto', 'aria-hidden': 'true' }, `${hechos}/${SECCIONES.length}`),
+    h('progress', { max: SECCIONES.length, value: hechos, 'aria-label': avance })));
+  // Con el menú angosto quedan el ícono y la marca de estado; el nombre se ve al pasar el cursor.
+  $('menu').replaceChildren(...SECCIONES.map(([id, titulo, , , estado]) => {
+    const [tipo, texto] = estado(), nombre = `${titulo}: ${texto}`;
+    const actual = id === paso;
+    return h('li', {}, h('a', { href: '#' + id, title: nombre, 'aria-label': nombre, className: actual ? 'actual' : '',
+      ...(actual ? { 'aria-current': 'step' } : {}), onclick: e => { e.preventDefault(); irA(id); } },
+      icono(id),
+      h('span', { className: 'texto-menu' }, h('span', {}, titulo), etiqueta(tipo, texto)),
+      h('span', { className: 'marca-estado tono-' + tipo, 'aria-hidden': 'true' }, iconoEstado(tipo))));
+  }));
+  // replaceChildren no descarta false (lo escribiría como texto), así que el botón solo se agrega si hace falta.
+  const irSiguiente = destino === paso ? [] : [boton([`Ir a ${nombreDestino(destino)}`, icono('siguiente')], () => irA(destino), { className: 'principal', id: 'ir-siguiente' })];
+  $('siguiente').replaceChildren(h('span', {}, h('strong', {}, 'Siguiente paso: '), texto), ...irSiguiente);
+  $('reiniciar').disabled = !S.datos && !S.revision;
+  menuLateral?.recalcular();
 }
 
 // ---------- Vistas por rol ----------
@@ -459,7 +514,7 @@ async function procesarPeticion(id, continuar = false) {
     else S.peticion = p;
     vista = 'proceso';
     pintar();
-    if (!continuar) notificar('ok', `Procesando ${id}. Cargue la base de datos (CSV).`);
+    paso = '';
     irA('datos');
   } catch (e) { mostrarError(e.message, 'Procesar petición'); }
 }
@@ -468,10 +523,10 @@ function pintarCabecera(u) {
   $('vistas').replaceChildren(...(u ? VISTAS[u.rol] : []).map(([id, texto]) =>
     h('button', { type: 'button', id: 'ver-' + id, ...(vista === id ? { 'aria-current': 'page' } : {}), onclick: () => irA(id) }, texto)));
   $('vistas').hidden = !u;
+  $('vistas').querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   $('usuario').replaceChildren(...(u ? [h('span', { className: 'usuario-nombre', title: ROLES[u.rol] }, u.nombre), h('small', {}, u.usuario)] : []));
   $('usuario').hidden = !u;
   $('cerrar-sesion').hidden = !u;
-  $('reiniciar').hidden = !(u?.rol === 'ti' && vista === 'proceso');
 }
 
 async function cerrarSesion() {
@@ -485,7 +540,7 @@ async function cerrarSesion() {
 }
 
 function resumenEjecucion(e) {
-  return tablaAdaptable(['Dato', 'Valor'], [
+  return datosClave([
     ['Código de ejecución', e.id],
     ['Petición dirigida a', etiquetaDestinatario(e.destinatario)],
     ['Petición de anonimización', fechaHora(e.solicitadoEn)],
@@ -646,21 +701,43 @@ function pintar() {
   pintarProceso();
 }
 
+// Solo el paso elegido; al pie, el paso anterior y el siguiente.
 function pintarProceso() {
   const foco = document.activeElement?.id;
-  const montajes = [];
-  $('contenido').replaceChildren(...SECCIONES.map(([id, titulo, descripcion, panel]) => {
-    const contenido = panel();
-    if (contenido.alMontar) montajes.push(contenido.alMontar);
-    return h('section', { id, className: 'panel', 'aria-labelledby': id + '-h' },
-      h('h2', { id: id + '-h', tabIndex: -1 }, titulo), h('p', { className: 'descripcion' }, descripcion),
-      h('div', {}, contenido));
-  }));
+  const i = Math.max(0, SECCIONES.findIndex(([s]) => s === paso));
+  const [id, titulo, descripcion, panel] = SECCIONES[i];
+  paso = id;
+  const contenido = panel();
+  const anterior = SECCIONES[i - 1], siguiente = SECCIONES[i + 1];
+  const [, destino] = siguientePaso();
+  const seccion = h('section', { id, className: 'panel', 'aria-labelledby': id + '-h' },
+    h('h2', { id: id + '-h', tabIndex: -1 }, titulo), h('p', { className: 'descripcion' }, descripcion),
+    h('div', {}, contenido));
+  // Pie fijo: si el paso siguiente todavía está bloqueado, el pie ofrece la acción que lo desbloquea
+  // (la misma del panel, que se oculta para no repetirla). Si no hay acción, «Siguiente» avisa que está bloqueado.
+  const bloqueado = !!siguiente && ['Bloqueado', 'Pendiente'].includes(siguiente[4]()[1]);
+  const accion = ['confirmar-ia', 'extraer', 'anonimizar', 'publicar-boton'].map(x => seccion.querySelector('#' + x)).find(Boolean);
+  let derecha = null;
+  if (accion && (bloqueado || !siguiente)) {
+    accion.hidden = true;
+    derecha = boton(accion.textContent, () => accion.click(), { className: 'principal', id: accion.id + '-pie', disabled: accion.disabled });
+  } else if (siguiente && bloqueado) {
+    derecha = boton([icono('candado'), `Siguiente: ${siguiente[1]} (bloqueado)`], () => {}, { id: 'paso-siguiente', disabled: true,
+      title: 'Primero termine este paso' });
+  } else if (siguiente) {
+    derecha = boton([`Siguiente: ${siguiente[1]}`, icono('siguiente')], () => irA(siguiente[0]),
+      { id: 'paso-siguiente', className: destino === siguiente[0] ? 'principal' : '' });
+  }
+  seccion.append(h('div', { className: 'pie-paso', role: 'group', 'aria-label': 'Acciones del paso' },
+    anterior ? boton([icono('anterior'), `Anterior: ${anterior[1]}`], () => irA(anterior[0]), { id: 'paso-anterior' }) : h('span'),
+    derecha));
+  $('contenido').replaceChildren(seccion);
   pintarNavegacion();
-  montajes.forEach(f => f());
+  if (contenido.alMontar) contenido.alMontar();
   if (foco) $(foco)?.focus?.({ preventScroll: true });
 }
 
+menuLateral = iniciarMenuLateral({ disposicion: $('proceso'), plegar: $('plegar-menu'), tirador: $('tirador-menu'), reiniciar: $('reiniciar') });
 $('reiniciar').addEventListener('click', empezarDeNuevo);
 $('cerrar-sesion').addEventListener('click', cerrarSesion);
 $('ayuda-abrir').addEventListener('click', () => $('ayuda').showModal());
@@ -673,6 +750,6 @@ globalThis.addEventListener?.('keydown', e => {
   if (seccion) { e.preventDefault(); irA(seccion[0]); }
 });
 // Evita perder el trabajo al recargar o cerrar por accidente.
-globalThis.addEventListener?.('beforeunload', e => { if (S.datos) { e.preventDefault(); e.returnValue = ''; } });
+globalThis.addEventListener?.('beforeunload', e => { if (S.datos || S.revision) { e.preventDefault(); e.returnValue = ''; } });
 
 pintar();

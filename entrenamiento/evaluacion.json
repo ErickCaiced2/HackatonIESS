@@ -1,0 +1,27 @@
+{
+  "version": "softmax-1.0",
+  "ejemplosEntrenamiento": 8060,
+  "advertencia": "Todo es sintético y del mismo generador de valores: sobrestima el rendimiento con bases reales.",
+  "evaluaciones": [
+    {
+      "conjunto": "nombres no vistos",
+      "columnas": 620,
+      "aciertos": "96.3 %",
+      "esenciales": "100.0 %",
+      "lineaBaseDiccionario": "6.5 %",
+      "confianzaAlta": "96.0 %",
+      "aciertoConConfianzaAlta": "97.3 %",
+      "erroresCriticosAntesDeGuardas": 0
+    },
+    {
+      "conjunto": "nombres de entrenamiento con ruido y columnas sin nombre",
+      "columnas": 620,
+      "aciertos": "97.9 %",
+      "esenciales": "94.4 %",
+      "lineaBaseDiccionario": "56.3 %",
+      "confianzaAlta": "94.5 %",
+      "aciertoConConfianzaAlta": "100.0 %",
+      "erroresCriticosAntesDeGuardas": 0
+    }
+  ]
+}

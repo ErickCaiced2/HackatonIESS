@@ -2,7 +2,7 @@
 // Cada cambio de estado queda en el historial de la petición. No hay operación para borrarlas.
 import { listaPersistente, nuevoId } from './almacen.js';
 import { validarDestinatario, mismoDestinatario, normalizarId } from './destinatario.js';
-import { validarPeriodo } from './cie10.js';
+import { validarPeriodo, validarEdad } from './cie10.js';
 
 export const ESTADOS = Object.freeze({
   enviada: 'Enviada a TI',
@@ -31,6 +31,8 @@ export function validarPeticion({ destinatario, filtro, aprobacion }) {
   if (!filtro?.capitulo) e.push('Elija el capítulo CIE-10.');
   const p = validarPeriodo(filtro ?? {});
   if (p) e.push('Periodo: ' + p);
+  const ed = validarEdad(filtro ?? {});
+  if (ed) e.push('Edad: ' + ed);
   if (!aprobacion?.nombre) e.push('Adjunte la solicitud aprobada (PDF).');
   else if (!/\.pdf$/i.test(aprobacion.nombre) && aprobacion.tipo !== 'application/pdf') e.push('La solicitud aprobada debe ser un PDF.');
   else if (aprobacion.tamano > PDF_MAXIMO) e.push('El PDF supera 10 MB.');
@@ -107,13 +109,15 @@ export function crearPeticiones(almacen = globalThis.localStorage) {
         p.firmadoEn = p.historial.at(-1).fecha;
       });
     },
-    registrarDescarga(id, { archivo, tipo }, usuario) {
+    // El destinatario solo recibe el CSV; configuración, trazabilidad y PTA son de uso interno de TI.
+    registrarDescarga(id, { archivo, tipo, sha256 = '' }, usuario) {
       return modificar(id, p => {
         if (!mismoDestinatario(p.destinatario, usuario.destinatario)) throw new Error('Solo el destinatario de la petición puede descargar.');
         if (!p.firmadoEn) throw new Error('Firme el acuerdo de confidencialidad antes de descargar.');
+        if (tipo !== 'csv') throw new Error('El destinatario solo puede descargar el CSV. Los demás archivos son de uso interno de TI.');
         const fecha = new Date().toISOString();
         if (p.estado === 'firmada') cambiarEstado(p, 'descargada', usuario.usuario);
-        p.descargas.push({ archivo, tipo, fecha, por: usuario.usuario });
+        p.descargas.push({ archivo, tipo, fecha, por: usuario.usuario, sha256 });
       });
     },
   };
