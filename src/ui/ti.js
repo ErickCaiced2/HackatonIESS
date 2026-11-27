@@ -8,6 +8,10 @@ import { describirFiltro } from './campos.js';
 import { etiquetaEstado, abrirPdf, historialPeticion } from './comite.js';
 import { peticiones, logs, registro, sesion, log, mostrarError, fechaCorta, fechaHora } from './servicios.js';
 import { graficoLineas, graficoBarras } from './graficos.js';
+import { ACUERDO, acuerdoTexto, sha256 } from '../motor/entregables.js';
+import { zip } from '../motor/zip.js';
+import { leerArchivo } from './archivos.js';
+import { sha256Bytes, descargar } from './servicios.js';
 
 // ---------- Bandeja de peticiones ----------
 let filtroEstado = 'pendientes';
@@ -63,6 +67,13 @@ export function pintarTiPeticiones(contenedor, ctx) {
   contenedor.replaceChildren(h('section', { className: 'panel', 'aria-labelledby': 'tip-h' },
     h('h2', { id: 'tip-h', tabIndex: -1 }, 'Peticiones'),
     h('p', { className: 'descripcion' }, 'Revise cada petición del comité con su solicitud aprobada. Puede devolverla con un motivo o procesarla: cargar la base, configurar la protección, revisar resultados y trazabilidad, y publicarla al destinatario.'),
+    h('div', { className: 'verificar-csv' },
+      h('div', {}, h('strong', {}, '¿Le llegó un CSV y quiere saber de dónde salió?'),
+        h('p', { className: 'nota' }, 'Se compara su huella SHA-256 con la de cada CSV entregado. El archivo no sale de este equipo.')),
+      h('label', { className: 'boton-archivo' }, 'Verificar un CSV',
+        h('input', { type: 'file', id: 'verificar-csv', accept: '.csv,text/csv', className: 'solo-lector',
+          onchange: e => { const f = e.target.files[0]; if (f) verificarCSV(f, () => pintarTiPeticiones(contenedor, ctx)); } }))),
+    resultadoVerificacion(),
     h('label', { className: 'por-pagina' }, 'Mostrar',
       h('select', { id: 'ti-estado', onchange: e => { filtroEstado = e.target.value; paginaTi = 1; repintar('ti-estado'); } },
         Object.entries(filtros).map(([k, [t, f]]) => h('option', { value: k, selected: k === filtroEstado }, `${t} (${todas.filter(f).length})`)))),
@@ -82,16 +93,94 @@ export function pintarTiPeticiones(contenedor, ctx) {
             boton('Siguiente', () => { paginaTi++; repintar('ti-siguiente'); }, { id: 'ti-siguiente', disabled: pag.pagina >= pag.paginas })))]));
 }
 
+// Archivos de uso interno de TI: configuración, trazabilidad y PTA (y el paquete completo). El destinatario no los recibe.
+async function descargarInterno(p, tipo) {
+  try {
+    const e = await leerArchivo('entrega:' + p.id);
+    if (!e) throw new Error('No se encontraron los archivos publicados de esta petición en este navegador.');
+    const traza = JSON.stringify({ ...JSON.parse(e.traza),
+      entregado_a: p.descargas.length ? { ...p.destinatario } : null,
+      acuerdo_confidencialidad: p.firmadoEn ? { version: ACUERDO.version, firmado_en: p.firmadoEn } : null,
+      sha256_csv_publicado: p.ejecucion?.sha256CSV ?? e.sha256CSV ?? null,
+      descargas_del_destinatario: p.descargas.map(({ archivo, fecha, sha256: huella }) => ({ archivo, fecha, sha256: huella ?? null })) }, null, 2);
+    const archivos = {
+      config: [e.base + '_configuracion.json', e.config, 'application/json'],
+      traza: [e.base + '_trazabilidad.json', traza, 'application/json'],
+      pta: [e.base + '_PTA.html', e.pta, 'text/html;charset=utf-8'],
+    };
+    const elegido = tipo === 'zip'
+      ? [e.base + '_paquete_TI.zip', zip([...Object.values(archivos).map(([n, c]) => [n, c]), [e.base + '_salida.csv', e.csv],
+        ...(p.firmadoEn ? [[e.base + '_acuerdo.txt', acuerdoTexto(e.ejecucionId, p.firmadoEn, p.destinatario)]] : [])]), 'application/zip']
+      : archivos[tipo];
+    log('descarga', `Descarga interna de TI: ${tipo.toUpperCase()}`, elegido[0], { referencia: p.id });
+    descargar(...elegido);
+    notificar('ok', `Se envió a descargas: ${elegido[0]}.`);
+  } catch (err) { mostrarError(err.message, 'Descarga interna de TI'); }
+}
+
+// Huella SHA-256 de cada CSV publicado (las peticiones antiguas sin huella se calculan desde el archivo guardado).
+async function huellasPublicadas() {
+  const lista = [];
+  for (const p of peticiones.lista().filter(x => x.ejecucion)) {
+    let huella = p.ejecucion.sha256CSV;
+    if (!huella) { const e = await leerArchivo('entrega:' + p.id); if (e) huella = await sha256(e.csv); }
+    if (huella) lista.push([huella, p]);
+  }
+  return lista;
+}
+
+// Compara un CSV recibido con todas las entregas: dice si está intacto y de qué petición salió.
+let verificacion = null;
+async function verificarCSV(archivo, repintar) {
+  try {
+    const huella = await sha256Bytes(await archivo.arrayBuffer());
+    const p = (await huellasPublicadas()).find(([x]) => x === huella)?.[1] ?? null;
+    verificacion = { nombre: archivo.name, huella, peticion: p };
+    log('peticion', 'Verificación de un CSV', `${p ? 'Coincide con ' + p.id : 'Sin coincidencia'} · SHA-256 ${huella}`, { referencia: p?.id ?? '', resultado: p ? 'ok' : 'fallo' });
+  } catch (err) { mostrarError(err.message, 'Verificar CSV'); }
+  repintar();
+}
+
+function resultadoVerificacion() {
+  if (!verificacion) return null;
+  const { nombre, huella, peticion: p } = verificacion;
+  const ultima = p?.descargas.at(-1);
+  return h('div', { role: 'status' },
+    p ? aviso('ok', h('strong', {}, `«${nombre}» coincide con el CSV de ${p.id}. `),
+      `Se entregó a ${etiquetaDestinatario(p.destinatario)}${ultima ? `, descargado el ${fechaHora(ultima.fecha)}` : ' (todavía no lo descarga)'}. El archivo no fue modificado.`)
+      : aviso('mal', h('strong', {}, `«${nombre}» no coincide con ningún CSV entregado. `),
+        'Fue modificado, está incompleto o no salió de este sistema.'),
+    datosClave([['Huella SHA-256 calculada', h('code', { className: 'huella' }, huella)]]));
+}
+
 function verDetalle(p) {
-  const d = document.getElementById('dialogo');
-  d.replaceChildren(h('div', {}, h('h2', {}, `Petición ${p.id}`),
-    h('p', {}, `Para ${etiquetaDestinatario(p.destinatario)} · ${describirFiltro(p.filtro)}`),
-    p.ejecucion && h('p', { className: 'nota' }, `Ejecución publicada: ${p.ejecucion.id}`),
-    p.firmadoEn && h('p', {}, `Acuerdo firmado: ${fechaHora(p.firmadoEn)}`),
-    p.descargas.length > 0 && tablaAdaptable(['Archivo', 'Tipo', 'Fecha', 'Por'], p.descargas.map(x => [x.archivo, x.tipo, fechaHora(x.fecha), x.por])),
+  const d = document.getElementById('detalle-ejecucion');
+  const huella = p.ejecucion?.sha256CSV;
+  d.replaceChildren(h('div', { className: 'contenido-dialogo' },
+    h('div', { className: 'cabeza-dialogo' }, h('h2', { id: 'detalle-titulo' }, `Petición ${p.id}`), boton('Cerrar ×', () => d.close())),
+    datosClave([
+      ['Para', etiquetaDestinatario(p.destinatario)],
+      ['Datos pedidos', describirFiltro(p.filtro)],
+      ['Ejecución publicada', p.ejecucion?.id ?? '—'],
+      ['Huella SHA-256 del CSV', huella ? h('code', { className: 'huella' }, huella) : '—'],
+      ['Acuerdo firmado', p.firmadoEn ? fechaHora(p.firmadoEn) : '—'],
+    ]),
+    p.ejecucion && [h('h3', {}, 'Archivos internos de TI'),
+      h('p', { className: 'nota' }, 'El destinatario solo descarga el CSV. Estos archivos son para TI y la auditoría.'),
+      h('div', { className: 'acciones' },
+        boton('Configuración (JSON)', () => descargarInterno(p, 'config'), { id: 'ti-bajar-config' }),
+        boton('Trazabilidad (JSON)', () => descargarInterno(p, 'traza'), { id: 'ti-bajar-traza' }),
+        boton('PTA (HTML)', () => descargarInterno(p, 'pta'), { id: 'ti-bajar-pta' }),
+        boton('Paquete completo (ZIP)', () => descargarInterno(p, 'zip'), { id: 'ti-bajar-zip' }))],
+    h('h3', {}, 'Descargas del destinatario'),
+    p.descargas.length > 0
+      ? tablaAdaptable(['Archivo', 'Fecha', 'Por', 'Huella SHA-256'], p.descargas.map(x => [x.archivo, fechaHora(x.fecha), x.por,
+        x.sha256 ? h('code', { className: 'huella', title: x.sha256 }, x.sha256.slice(0, 16) + '…') : '—']))
+      : h('p', { className: 'nota' }, 'Todavía no descarga el CSV.'),
     h('h3', {}, 'Historial'), historialPeticion(p),
-    h('div', { className: 'acciones' }, boton('Abrir PDF aprobado', () => abrirPdf(p.id)), boton('Cerrar', () => d.close()))));
+    h('div', { className: 'acciones' }, boton('Abrir PDF aprobado', () => abrirPdf(p.id)))));
   d.showModal();
+  d.scrollTop = 0;
 }
 
 // ---------- Logs ----------

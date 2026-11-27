@@ -395,13 +395,14 @@ async function publicar() {
   try {
     const csv = aCSV(r.columnas, r.salida), config = configuracionJSON(r);
     r.destinatario = { ...p.destinatario };
-    const traza = await trazabilidadJSON(r, await sha256(csv), await sha256(config));
+    const huellaCSV = await sha256(csv);
+    const traza = await trazabilidadJSON(r, huellaCSV, await sha256(config));
     // Se guardan los archivos; el acuerdo y «entregado a» se agregan cuando el destinatario firma y descarga.
-    await guardarArchivo('entrega:' + p.id, { base: r.id, ejecucionId: r.id, csv, config, traza,
+    await guardarArchivo('entrega:' + p.id, { base: r.id, ejecucionId: r.id, csv, config, traza, sha256CSV: huellaCSV,
       pta: ptaHTML(r, { riesgo: BORRADOR_RIESGO, titular: BORRADOR_TITULAR }) });
     registro.peticion(r.id, p.destinatario, new Date().toISOString());
-    peticiones.publicar(p.id, { id: r.id, fecha: r.fecha, configuracion: r.config.tipo, kDespues: r.despues.kMin, personas: r.despues.personas }, u.usuario);
-    log('peticion', 'Publicada al destinatario', `${r.id} para ${etiquetaDestinatario(p.destinatario)}`, { referencia: p.id });
+    peticiones.publicar(p.id, { id: r.id, fecha: r.fecha, configuracion: r.config.tipo, kDespues: r.despues.kMin, personas: r.despues.personas, sha256CSV: huellaCSV }, u.usuario);
+    log('peticion', 'Publicada al destinatario', `${r.id} para ${etiquetaDestinatario(p.destinatario)} · CSV SHA-256 ${huellaCSV}`, { referencia: p.id });
     notificar('ok', `Petición ${p.id} publicada. ${etiquetaDestinatario(p.destinatario)} ya puede firmar y descargar.`);
     S = inicial();
     paso = 'datos';
@@ -427,7 +428,7 @@ function panelPublicar() {
     h('h3', {}, 'Antes de publicar'), lista,
     h('div', { className: 'acciones' },
       boton('Publicar al destinatario', publicar, { className: 'principal', id: 'publicar-boton', disabled: !listoParaPublicar() })),
-    h('p', { className: 'nota' }, 'Al publicar, solo el destinatario puede ver la petición, firmar el acuerdo de confidencialidad y descargar los archivos. Los datos de personas no salen de este navegador.'),
+    h('p', { className: 'nota' }, 'Al publicar, solo el destinatario puede ver la petición, firmar el acuerdo de confidencialidad y descargar el CSV. La configuración, la trazabilidad y el PTA quedan para TI. La huella SHA-256 del CSV se guarda para comprobar después si un archivo fue modificado o de qué entrega salió.'),
   ];
 }
 

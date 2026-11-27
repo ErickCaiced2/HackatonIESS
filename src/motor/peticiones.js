@@ -109,13 +109,15 @@ export function crearPeticiones(almacen = globalThis.localStorage) {
         p.firmadoEn = p.historial.at(-1).fecha;
       });
     },
-    registrarDescarga(id, { archivo, tipo }, usuario) {
+    // El destinatario solo recibe el CSV; configuración, trazabilidad y PTA son de uso interno de TI.
+    registrarDescarga(id, { archivo, tipo, sha256 = '' }, usuario) {
       return modificar(id, p => {
         if (!mismoDestinatario(p.destinatario, usuario.destinatario)) throw new Error('Solo el destinatario de la petición puede descargar.');
         if (!p.firmadoEn) throw new Error('Firme el acuerdo de confidencialidad antes de descargar.');
+        if (tipo !== 'csv') throw new Error('El destinatario solo puede descargar el CSV. Los demás archivos son de uso interno de TI.');
         const fecha = new Date().toISOString();
         if (p.estado === 'firmada') cambiarEstado(p, 'descargada', usuario.usuario);
-        p.descargas.push({ archivo, tipo, fecha, por: usuario.usuario });
+        p.descargas.push({ archivo, tipo, fecha, por: usuario.usuario, sha256 });
       });
     },
   };

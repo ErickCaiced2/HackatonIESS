@@ -2,8 +2,7 @@
 // confidencialidad y, solo entonces, se habilitan las descargas.
 import { h, boton, aviso, tablaAdaptable, notificar, datosClave } from './dom.js';
 import { icono } from './iconos.js';
-import { ACUERDO, acuerdoTexto } from '../motor/entregables.js';
-import { zip } from '../motor/zip.js';
+import { ACUERDO, sha256 } from '../motor/entregables.js';
 import { etiquetaDestinatario } from '../motor/destinatario.js';
 import { describirFiltro } from './campos.js';
 import { etiquetaEstado } from './comite.js';
@@ -13,32 +12,22 @@ import { leerArchivo } from './archivos.js';
 const DISPONIBLES = ['publicada', 'firmada', 'descargada'];
 let abierta = null;
 
-const ARCHIVOS = [['zip', 'Descargar todo (ZIP)'], ['csv', 'Solo CSV'], ['config', 'Solo configuración'], ['traza', 'Solo trazabilidad'], ['pta', 'Solo PTA']];
-
-async function descargarArchivo(p, tipo, repintar) {
+// El destinatario solo descarga el CSV. Antes de entregarlo se comprueba que coincide con la huella registrada al publicar.
+async function descargarCSV(p, repintar) {
   const u = sesion.actual();
   try {
     const e = await leerArchivo('entrega:' + p.id);
     if (!e) throw new Error('No se encontraron los archivos publicados de esta petición en este navegador.');
-    const entregadoA = { ...p.destinatario };
-    const traza = JSON.stringify({ ...JSON.parse(e.traza), entregado_a: entregadoA,
-      acuerdo_confidencialidad: { version: ACUERDO.version, firmado_en: p.firmadoEn, firmado_por: u.usuario } }, null, 2);
-    const archivos = {
-      csv: [e.base + '_salida.csv', e.csv, 'text/csv;charset=utf-8'],
-      config: [e.base + '_configuracion.json', e.config, 'application/json'],
-      traza: [e.base + '_trazabilidad.json', traza, 'application/json'],
-      pta: [e.base + '_PTA.html', e.pta, 'text/html;charset=utf-8'],
-    };
-    const elegido = tipo === 'zip'
-      ? [e.base + '_paquete.zip', zip([...Object.values(archivos).map(([n, c]) => [n, c]),
-        [e.base + '_acuerdo.txt', acuerdoTexto(e.ejecucionId, p.firmadoEn, p.destinatario)]]), 'application/zip']
-      : archivos[tipo];
+    const huella = await sha256(e.csv);
+    const esperada = p.ejecucion?.sha256CSV ?? e.sha256CSV;
+    if (esperada && huella !== esperada) throw new Error('El CSV guardado no coincide con la huella registrada al publicar. No se entrega: avise a TI.');
+    const nombre = e.base + '_salida.csv';
     // Se registra antes de entregar el archivo.
-    peticiones.registrarDescarga(p.id, { archivo: elegido[0], tipo }, u);
-    registro.descarga(e.ejecucionId, elegido[0], new Date().toISOString(), entregadoA);
-    log('descarga', `Descarga ${tipo.toUpperCase()}`, elegido[0], { referencia: p.id });
-    descargar(...elegido);
-    notificar('ok', `Se envió a descargas: ${elegido[0]}.`);
+    peticiones.registrarDescarga(p.id, { archivo: nombre, tipo: 'csv', sha256: huella }, u);
+    registro.descarga(e.ejecucionId, nombre, new Date().toISOString(), { ...p.destinatario });
+    log('descarga', 'Descarga CSV', `${nombre} · SHA-256 ${huella}`, { referencia: p.id });
+    descargar(nombre, e.csv, 'text/csv;charset=utf-8');
+    notificar('ok', `Se envió a descargas: ${nombre}.`);
     repintar();
   } catch (err) { mostrarError(err.message, 'Descargar entregable'); }
 }
@@ -52,9 +41,9 @@ function vistaPeticion(p, contenedor) {
     try {
       peticiones.firmar(p.id, sesion.actual());
       log('peticion', 'Acuerdo firmado', `Versión ${ACUERDO.version}`, { referencia: p.id });
-      notificar('ok', 'Acuerdo firmado. Las descargas están habilitadas.');
+      notificar('ok', 'Acuerdo firmado. Ya puede descargar el CSV.');
       repintar();
-      document.getElementById('bajar-zip')?.focus();
+      document.getElementById('bajar-csv')?.focus();
     } catch (e) { mostrarError(e.message, 'Firmar acuerdo'); }
   };
   return h('section', { className: 'panel', 'aria-labelledby': 'doc-pet-h' },
@@ -67,18 +56,20 @@ function vistaPeticion(p, contenedor) {
       ['Publicada por TI', fechaHora(p.historial.find(x => x.estado === 'publicada')?.fecha)],
     ]),
     h('fieldset', { className: 'acuerdo' }, h('legend', {}, 'Acuerdo de confidencialidad y uso'),
-      h('p', {}, 'Los archivos derivan de datos de salud. Para descargar cualquiera de ellos, me comprometo a:'),
+      h('p', {}, 'El CSV deriva de datos de salud. Para descargarlo, me comprometo a:'),
       h('ol', {}, ACUERDO.condiciones.map(c => h('li', {}, c))),
       firmada
         ? aviso('ok', `Acuerdo firmado el ${fechaHora(p.firmadoEn)} por ${etiquetaDestinatario(p.destinatario)}.`)
         : [h('label', { className: 'casilla' }, casilla, h('strong', {}, 'He leído y acepto este acuerdo')),
           h('div', { className: 'acciones' }, boton('Firmar acuerdo', firmar, { className: 'principal', id: 'firmar' }))]),
     h('section', { className: 'descargas' + (firmada ? '' : ' congelado'), 'aria-labelledby': 'desc-h' },
-      h('h3', { id: 'desc-h', className: 'con-icono' }, !firmada && icono('candado'), firmada ? 'Descargas' : 'Descargas (bloqueadas)'),
-      !firmada && h('p', { className: 'nota' }, 'Se habilitan al firmar el acuerdo de confidencialidad.'),
-      h('div', { className: 'acciones' }, ARCHIVOS.map(([tipo, texto]) => boton(texto, () => descargarArchivo(p, tipo, repintar),
-        { id: 'bajar-' + tipo, className: tipo === 'zip' ? 'principal' : '', disabled: !firmada }))),
-      p.descargas.length > 0 && tablaAdaptable(['Archivo', 'Tipo', 'Fecha'], p.descargas.map(x => [x.archivo, x.tipo.toUpperCase(), fechaHora(x.fecha)]))),
+      h('h3', { id: 'desc-h', className: 'con-icono' }, !firmada && icono('candado'), firmada ? 'Descarga del CSV' : 'Descarga del CSV (bloqueada)'),
+      !firmada && h('p', { className: 'nota' }, 'Se habilita al firmar el acuerdo de confidencialidad.'),
+      h('div', { className: 'acciones' }, boton('Descargar el CSV', () => descargarCSV(p, repintar), { id: 'bajar-csv', className: 'principal', disabled: !firmada })),
+      p.ejecucion?.sha256CSV && datosClave([['Huella SHA-256 del CSV', h('code', { className: 'huella' }, p.ejecucion.sha256CSV)]]),
+      h('p', { className: 'nota' }, 'La huella identifica este archivo exacto y su entrega a usted. Si el archivo se modifica, la huella cambia; si se comparte, TI puede comprobar de qué entrega salió.'),
+      p.descargas.length > 0 && tablaAdaptable(['Archivo', 'Fecha', 'Huella SHA-256'],
+        p.descargas.map(x => [x.archivo, fechaHora(x.fecha), x.sha256 ? h('code', { className: 'huella', title: x.sha256 }, x.sha256.slice(0, 16) + '…') : '—']))),
     h('p', { className: 'nota' }, 'Use los datos solo para este estudio, sin reidentificar ni cruzar fuentes.'));
 }
 

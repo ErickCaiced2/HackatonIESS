@@ -44,13 +44,16 @@ test('peticiones: el comité crea, TI devuelve o procesa y publica, el destinata
   assert.throws(() => pet.firmar(p.id, doc), /no puede pasar/);
   pet.publicar(p.id, { id: 'R2-X' }, 'ti');
   assert.throws(() => pet.firmar(p.id, otro), /Solo el destinatario/);
-  assert.throws(() => pet.registrarDescarga(p.id, { archivo: 'a.zip', tipo: 'zip' }, doc), /Firme/);
+  assert.throws(() => pet.registrarDescarga(p.id, { archivo: 'a.csv', tipo: 'csv' }, doc), /Firme/);
   pet.firmar(p.id, doc);
-  pet.registrarDescarga(p.id, { archivo: 'a.zip', tipo: 'zip' }, doc);
-  pet.registrarDescarga(p.id, { archivo: 'a.csv', tipo: 'csv' }, doc);
+  // El destinatario solo descarga el CSV; los demás archivos son de TI.
+  for (const tipo of ['zip', 'config', 'traza', 'pta']) {
+    assert.throws(() => pet.registrarDescarga(p.id, { archivo: 'a.' + tipo, tipo }, doc), /solo puede descargar el CSV/);
+  }
+  pet.registrarDescarga(p.id, { archivo: 'a.csv', tipo: 'csv', sha256: 'ab'.repeat(32) }, doc);
   const final = pet.obtener(p.id);
   assert.equal(final.estado, 'descargada');
-  assert.deepEqual(final.descargas.map(d => d.tipo), ['zip', 'csv']);
+  assert.deepEqual(final.descargas.map(d => [d.tipo, d.sha256]), [['csv', 'ab'.repeat(32)]]);
   assert.deepEqual(final.historial.map(h => h.estado), ['enviada', 'devuelta', 'enviada', 'en_proceso', 'publicada', 'firmada', 'descargada']);
   assert.equal(pet.paraDestinatario(DOC).length, 1);
   assert.equal(pet.paraDestinatario(otro.destinatario).length, 0);
