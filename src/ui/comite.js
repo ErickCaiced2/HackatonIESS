@@ -57,7 +57,7 @@ function formulario(contenedor) {
     } catch (e) { mostrarError(e.message, 'Enviar petición'); }
   };
   return h('section', { className: 'panel', 'aria-labelledby': 'form-peticion-h' },
-    h('h2', { id: 'form-peticion-h', tabIndex: -1 }, b.id ? `Corregir la petición ${b.id}` : 'Nueva petición'),
+    h('h2', { id: 'form-peticion-h', tabIndex: -1 }, b.id ? `Corregir la petición ${b.id}` : 'Registrar solicitud'),
     h('p', { className: 'descripcion' }, 'Adjunte la solicitud aprobada, indique a quién va dirigido el entregable y qué datos necesita. TI la revisará y preparará el dataset.'),
     b.motivo && aviso('mal', `TI la devolvió: ${b.motivo}`),
     h('div', { className: 'dos-columnas' },
@@ -143,10 +143,10 @@ export function pintarComite(contenedor) {
     h('div', { className: 'cabeza-tablero' },
       h('div', {}, h('h2', { id: 'ce-h', tabIndex: -1 }, 'Peticiones del comité de ética'),
         h('p', { className: 'descripcion' }, 'Cree peticiones con la solicitud aprobada y siga su estado hasta que el destinatario descarga el entregable.')),
-      boton('Nueva petición +', () => { borrador = nuevoBorrador(); pintarComite(contenedor); }, { className: 'principal', id: 'nueva-peticion' })),
+      boton('Registrar solicitud +', () => { borrador = nuevoBorrador(); pintarComite(contenedor); }, { className: 'principal', id: 'nueva-peticion' })),
     devueltas > 0 && aviso('aviso', `${devueltas} petición(es) devuelta(s) por TI: revise el motivo y corríjala(s).`),
     lista.length === 0
-      ? h('div', { className: 'vacio' }, h('p', {}, 'Todavía no hay peticiones. Pulse «Nueva petición» para crear la primera.'))
+      ? h('div', { className: 'vacio' }, h('p', {}, 'Todavía no hay peticiones. Pulse «Registrar solicitud» para crear la primera.'))
       : caja));
   if (lista.length) pintarLista(caja, lista, contenedor);
 }
