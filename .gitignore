@@ -5,3 +5,6 @@ datos/
 salidas/
 
 .claude/
+# Conector de base de datos
+conector/node_modules/
+conector/.env

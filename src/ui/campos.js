@@ -2,7 +2,7 @@
 import { h, boton } from './dom.js';
 import { TIPOS_DESTINATARIO, validarDestinatario, ejemploDestinatario, normalizarId, formatearId, excedeLongitud } from '../motor/destinatario.js';
 import { CAPITULOS, bloquesDe, categoriasDe, PERIODO_MINIMO, anioActual, periodo, etiquetaPeriodo, etiquetaFiltro,
-  EDAD_MINIMA, EDAD_MAXIMA, rangoEdad, etiquetaEdad } from '../motor/cie10.js';
+  EDAD_MINIMA, EDAD_MAXIMA, rangoEdad, etiquetaEdad, incluyeMenores } from '../motor/cie10.js';
 
 // Tipo de personal + identificador con formato automático (licencia 4-4-6, prefijo IESS-).
 // Mientras se escribe solo se avisa si sobran dígitos; al terminar se valida todo.
@@ -118,7 +118,10 @@ export function campoFiltro(filtro, alCambiar) {
       sel('Edad desde (años)', 'pf-edad-desde', e.desde, edades.map(a => [a, String(a), e.hasta !== null && a > e.hasta]), v => { filtro.edadDesde = Number(v); }),
       sel('Edad hasta (años)', 'pf-edad-hasta', e.hasta ?? '', [['', 'Sin límite (o más)'], ...edades.map(a => [a, String(a), a < e.desde])],
         v => { filtro.edadHasta = v === '' ? null : Number(v); })),
-    h('p', { className: 'nota' }, `Edad cumplida a la fecha de la atención: ${etiquetaEdad(filtro)}. El mínimo es ${EDAD_MINIMA}: no se entregan datos de menores de edad (categoría especial, art. 25 LOPDP).`))));
+    incluyeMenores(filtro)
+      ? h('p', { className: 'nota nota-especial', role: 'status' }, h('strong', {}, 'Dato especial: '),
+        `la petición incluye a niñas, niños y adolescentes (edad ${e.hasta === null ? `${e.desde} años o más` : `${e.desde} a ${e.hasta} años`}). Son datos de categoría especial (art. 25 LOPDP): se entregan solo con la aprobación del comité, con edades agrupadas en 0-11 y 12-17 y con las mismas reglas de protección.`)
+      : h('p', { className: 'nota' }, `Edad cumplida a la fecha de la atención: ${etiquetaEdad(filtro)}. Solo personas adultas.`))));
 }
 
 export const describirFiltro = f => `${etiquetaFiltro(f)} · ${etiquetaEdad(f)} · periodo ${etiquetaPeriodo(f)}`;

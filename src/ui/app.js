@@ -18,6 +18,7 @@ import { pintarTiPeticiones, pintarTiLogs, pintarTiTablero } from './ti.js';
 import { icono, iniciarMenuLateral } from './menu-lateral.js';
 import { analizar, decisionesIniciales, estandarizar } from '../ia/estandarizar.js';
 import { panelRevision } from './revision.js';
+import { panelBaseDatos } from './conector.js';
 
 const sinResultados = () => ({ r: null, historial: {} });
 const inicial = () => ({
@@ -85,9 +86,19 @@ async function cargar(entrada) {
     let texto, codificacion = 'UTF-8';
     try { texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
     catch { texto = new TextDecoder('windows-1252').decode(bytes); codificacion = 'Windows-1252'; }
-    const analisis = analizar(texto.replace(/^\uFEFF/, '')); // si falla, se conserva lo anterior
-    S = { ...inicial(), peticion: S.peticion, filtro: { ...S.peticion.filtro }, archivo: archivo.name, revision: { analisis, decisiones: decisionesIniciales(analisis), codificacion } };
+    procesarTexto(texto, archivo.name, codificacion);
   }, 'datos');
+}
+
+// Archivo o base de datos: el texto entra igual a la revisión de la IA.
+function procesarTexto(texto, nombre, codificacion) {
+  const analisis = analizar(texto.replace(/^\uFEFF/, '')); // si falla, se conserva lo anterior
+  S = { ...inicial(), peticion: S.peticion, filtro: { ...S.peticion.filtro }, archivo: nombre, revision: { analisis, decisiones: decisionesIniciales(analisis), codificacion } };
+}
+
+async function traerDeBase(texto, nombre) {
+  if (!await sePuedeDescartar('traer otros datos')) return;
+  trabajar('La IA está leyendo y reconociendo las columnas…', () => procesarTexto(texto, nombre, 'UTF-8 (base de datos)'), 'datos');
 }
 
 function confirmarEstandarizacion() {
@@ -129,9 +140,13 @@ function panelDatos() {
         h('label', { className: 'boton-archivo' }, 'Cambiar archivo',
           h('input', { type: 'file', id: 'archivo', accept: '.csv,.tsv,.txt', className: 'solo-lector', onchange: e => cargar(e.target) })),
         h('small', {}, 'Se procesa en este equipo; no se envía a ningún servidor.'))
-      : [h('label', { className: 'archivo' }, 'Elija el archivo de atenciones (CSV, TSV o texto delimitado)',
-        h('input', { type: 'file', id: 'archivo', accept: '.csv,.tsv,.txt', onchange: e => cargar(e.target) })),
-      h('p', { className: 'nota' }, 'El archivo se procesa en este equipo; la aplicación no lo envía a ningún servidor.')],
+      : pestanas('origen', [
+        ['archivo', 'Archivo', () => [h('label', { className: 'archivo' }, 'Elija el archivo de atenciones (CSV, TSV o texto delimitado)',
+          h('input', { type: 'file', id: 'archivo', accept: '.csv,.tsv,.txt', onchange: e => cargar(e.target) })),
+        h('p', { className: 'nota' }, 'El archivo se procesa en este equipo; la aplicación no lo envía a ningún servidor.')]],
+        ['bdd', 'Base de datos', () => panelBaseDatos({ repintar: pintar, alTraer: traerDeBase,
+          registrar: (accion, detalle) => log('peticion', accion, detalle, { referencia: S.peticion.id }) })],
+      ], 'Origen de los datos'),
     S.revision && panelRevision(S.revision, pintar, confirmarEstandarizacion),
     d && aviso('ok', `«${S.archivo}» quedó estandarizado: ${num(d.filas.length)} atenciones de ${num(d.personas)} personas.`),
     d && d.avisos.map(a => h('p', { className: 'nota' }, 'Nota: ' + a)),
@@ -158,10 +173,13 @@ function panelDatos() {
     c && detalle('exclusiones', 'Ver por qué se excluyeron atenciones', tabla(['Concepto', 'Atenciones'], [
       ['Atenciones en el archivo', num(c.entrada)],
       [`− Diagnóstico fuera del filtro (${c.etiquetaFiltro})`, num(c.excluidas.diagnostico)],
+      ['− Edad no válida o faltante (no se puede confirmar que sea adulto)', num(c.excluidas.edadInvalida ?? 0)],
       [`− Edad fuera del rango (${c.edad}) en la fecha de atención`, num(c.excluidas.edad)],
       [`− Fuera del periodo ${c.periodo}`, num(c.excluidas.periodo)],
       ['= Atenciones en la cohorte', num(c.atenciones)]]),
     h('p', {}, `Identificadores presentes ahora: ${ident(S.antes.identificadores)}.`)),
+    c && c.menores.pideMenores && aviso('aviso', h('strong', {}, 'Dato especial: '), `la petición incluye menores de edad (${num(c.menores.atencionesDeMenores)} atención(es) en la cohorte). Son datos de categoría especial: sus edades se agrupan en 0-11 y 12-17.`),
+    c && c.menores.personasPosibles > 0 && aviso('aviso', `${num(c.menores.personasPosibles)} persona(s) tienen 18 años o más según la columna de edad, pero eran menores según su fecha de nacimiento. La configuración propia las retira; la de referencia solo avisa.`),
   ];
 }
 
@@ -241,7 +259,7 @@ function panelProteccion() {
         boton('+', () => fijar(valor + 1), { id: `p-${clave}-mas`, 'aria-label': `Aumentar ${texto.toLowerCase()}`, disabled: fija || valor >= max })),
       h('small', {}, ayuda));
   };
-  const variables = plan(c);
+  const variables = plan(c, !!S.cohorte?.menores?.pideMenores);
   const errores = validarConfig(c);
   return [
     h('fieldset', { className: 'opciones' }, h('legend', {}, 'Elija una forma de proteger'),
@@ -251,10 +269,11 @@ function panelProteccion() {
       h('div', { className: 'fila' },
         selector('Grupo mínimo (k)', 'k', [5, 6, 8, 10, 15].map(n => [n, `${n} personas`]), 'Tamaño del grupo más pequeño de personas con la misma edad, sexo y región. Con 5, cada persona se confunde con al menos 4 más.'),
         contador('Ancho de los rangos de edad', 'anchoEdad', { ...ANCHO_EDAD, unidad: 'años' },
-          `Más años protegen más; menos dan más detalle. Entre ${ANCHO_EDAD.min} y ${ANCHO_EDAD.max}. Grupos: ${gruposDeEdad(c.anchoEdad).join(' · ')}`),
+          `Más años protegen más; menos dan más detalle. Entre ${ANCHO_EDAD.min} y ${ANCHO_EDAD.max}. Grupos: ${gruposDeEdad(c.anchoEdad, !!S.cohorte?.menores?.pideMenores).join(' · ')}`),
         selector('Ubicación', 'ubicacion', [['region', 'Región'], ['provincia', 'Provincia']], 'Región agrupa a más personas.'),
         selector('Fecha', 'fecha', [['mes', 'Año y mes'], ['anio', 'Solo año']], 'El estudio pide año y mes.'),
         selector('Diagnósticos distintos por grupo (l)', 'l', [[1, 'No exigir'], [2, 'Al menos 2'], [3, 'Al menos 3']], 'Cuántos diagnósticos distintos debe tener cada grupo. Con 2 o más, nadie deduce la enfermedad solo por saber a qué grupo pertenece una persona.'),
+        selector('Posibles menores de edad', 'menores', [['retirar', 'Retirarlos'], ['avisar', 'Solo avisar']], 'Edad de 18 o más, pero menos de 18 según la fecha de nacimiento.'),
         selector('Estancias largas', 'topeEstancia', [[null, 'Mostrar exactas'], [15, '15 días o más juntas'], [30, '30 días o más juntas'], [60, '60 días o más juntas']], 'Evita que un valor raro señale a alguien.')),
       !fija && boton('Restablecer valores recomendados', () => {
         guardarParaDeshacer();
@@ -324,6 +343,9 @@ function panelResultados() {
         detalle('controles', 'Controles para los casos especiales',
           tabla(['Control', 'Cantidad'], [
             [`Atenciones excluidas por edad fuera de ${r.cohorte.edad} (dentro del filtro de diagnóstico)`, num(r.cohorte.excluidas.edad)],
+            ['Atenciones excluidas por edad no válida o faltante', num(r.menores?.atencionesConEdadInvalida ?? 0)],
+            [`Posibles menores según la fecha de nacimiento (${r.menores?.tratamiento ?? '—'})`, num(r.menores?.personasPosiblesMenores ?? 0)],
+            ['Personas con otras atenciones como menor (fuera de la cohorte)', num(r.menores?.personasConHistorialDeMenor ?? 0)],
             ['Personas en el grupo 80+ en la salida', num(new Set(r.salida.filter(f => f.grupo_edad === '80+').map(f => f.id_paciente_estudio)).size)],
             ...r.recorrido.filter(o => o.operacion.startsWith('Supresión'))
               .map(o => [`Personas retiradas: ${o.operacion.toLowerCase()} (vuelta ${o.vuelta})`, num(o.personasAntes - o.personasDespues)]),

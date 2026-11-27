@@ -59,6 +59,7 @@ export function pintarTiPeticiones(contenedor, ctx) {
   const accion = p => {
     if (p.estado === 'enviada') return boton('Revisar', () => revisar(p, ctx), { id: 'revisar-' + p.id, className: 'principal' });
     if (p.estado === 'en_proceso') return boton('Continuar', () => ctx.procesar(p.id, true), { id: 'continuar-' + p.id });
+    if (p.ejecucion) return boton('Archivos de TI', () => verDetalle(p, true), { id: 'archivos-' + p.id });
     return h('span', { className: 'nota' }, 'Sin acción pendiente');
   };
   const pag = paginar(lista, paginaTi, porPaginaTi);
@@ -153,7 +154,7 @@ function resultadoVerificacion() {
     datosClave([['Huella SHA-256 calculada', h('code', { className: 'huella' }, huella)]]));
 }
 
-function verDetalle(p) {
+function verDetalle(p, irAArchivos = false) {
   const d = document.getElementById('detalle-ejecucion');
   const huella = p.ejecucion?.sha256CSV;
   d.replaceChildren(h('div', { className: 'contenido-dialogo' },
@@ -165,7 +166,7 @@ function verDetalle(p) {
       ['Huella SHA-256 del CSV', huella ? h('code', { className: 'huella' }, huella) : '—'],
       ['Acuerdo firmado', p.firmadoEn ? fechaHora(p.firmadoEn) : '—'],
     ]),
-    p.ejecucion && [h('h3', {}, 'Archivos internos de TI'),
+    p.ejecucion && [h('h3', { id: 'archivos-ti' }, 'Archivos internos de TI'),
       h('p', { className: 'nota' }, 'El destinatario solo descarga el CSV. Estos archivos son para TI y la auditoría.'),
       h('div', { className: 'acciones' },
         boton('Configuración (JSON)', () => descargarInterno(p, 'config'), { id: 'ti-bajar-config' }),
@@ -181,6 +182,7 @@ function verDetalle(p) {
     h('div', { className: 'acciones' }, boton('Abrir PDF aprobado', () => abrirPdf(p.id)))));
   d.showModal();
   d.scrollTop = 0;
+  if (irAArchivos) document.getElementById('ti-bajar-config')?.focus();
 }
 
 // ---------- Logs ----------

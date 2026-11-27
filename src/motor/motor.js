@@ -1,8 +1,9 @@
 // Motor sin interfaz: carga, cohorte, anonimización, medición y trazabilidad.
 import { COLUMNAS, ALIAS, IDENTIFICADORES, CUASIIDENTIFICADORES, REGIONES, VERSION } from './config.js';
 import { parsearCSV } from './csv.js';
+import { riesgoTrayectoria, pruebaEnlace } from './riesgo.js';
 import { FILTRO_ESTUDIO, coincide, esDelEstudio, etiquetaFiltro, enPeriodo, etiquetaPeriodo, validarPeriodo,
-  enRangoEdad, etiquetaEdad, validarEdad } from './cie10.js';
+  enRangoEdad, etiquetaEdad, validarEdad, incluyeMenores } from './cie10.js';
 
 const distintos = arr => new Set(arr).size;
 const personas = (filas, id) => distintos(filas.map(f => f[id]));
@@ -50,6 +51,7 @@ export function leer(texto) {
 export function contadorPorFiltro(filas) {
   const porCodigo = new Map(); // código de 3 caracteres -> «fecha|edad» -> personas
   for (const f of filas) {
+    if (!edadValida(f.edad)) continue; // misma regla que la cohorte
     const codigo = f.diagnostico_cie10.slice(0, 3);
     if (!porCodigo.has(codigo)) porCodigo.set(codigo, new Map());
     const grupo = porCodigo.get(codigo), clave = `${f.fecha_ingreso}|${Number(f.edad)}`;
@@ -75,9 +77,10 @@ export function contadorPorFiltro(filas) {
 export function extraerCohorte(filas, filtro = FILTRO_ESTUDIO) {
   const errorPeriodo = validarPeriodo(filtro) || validarEdad(filtro);
   if (errorPeriodo) throw new Error(errorPeriodo);
-  const excluidas = { diagnostico: 0, edad: 0, periodo: 0 };
+  const excluidas = { diagnostico: 0, edadInvalida: 0, edad: 0, periodo: 0 };
   const cohorte = filas.filter(f => {
     if (!coincide(f.diagnostico_cie10, filtro)) excluidas.diagnostico++;
+    else if (!edadValida(f.edad)) excluidas.edadInvalida++;
     else if (!enRangoEdad(f.edad, filtro)) excluidas.edad++;
     else if (!enPeriodo(f.fecha_ingreso, filtro)) excluidas.periodo++;
     else return true;
@@ -87,7 +90,37 @@ export function extraerCohorte(filas, filtro = FILTRO_ESTUDIO) {
     filas: cohorte, excluidas, entrada: filas.length,
     filtro: { ...filtro }, etiquetaFiltro: etiquetaFiltro(filtro), periodo: etiquetaPeriodo(filtro), edad: etiquetaEdad(filtro), esEstudio: esDelEstudio(filtro),
     personas: personas(cohorte, 'cedula'), atenciones: cohorte.length,
+    menores: incluyeMenores(filtro)
+      ? { pideMenores: true, posibles: new Set(), personasPosibles: 0, atencionesPosibles: 0, sinNacimiento: 0, personasConHistorialDeMenor: 0,
+        atencionesDeMenores: cohorte.filter(f => Number(f.edad) < 18).length }
+      : { pideMenores: false, ...revisarMenores(filas, cohorte) },
   };
+}
+
+// ---------- Protección de menores de edad (NNA, categoría especial) ----------
+// Una edad válida es un entero de 0 a 120. Sin edad confiable no se puede afirmar que la persona es adulta.
+export const edadValida = e => /^\d{1,3}$/.test(String(e ?? '').trim()) && Number(e) <= 120;
+
+// Años cumplidos entre dos fechas AAAA-MM-DD.
+export function edadEnFecha(nacimiento, fecha) {
+  if (!fechaValida(nacimiento) || !fechaValida(fecha) || nacimiento > fecha) return null;
+  return Number(fecha.slice(0, 4)) - Number(nacimiento.slice(0, 4)) - (fecha.slice(5) < nacimiento.slice(5) ? 1 : 0);
+}
+
+// Revisa la cohorte buscando menores que la columna edad no muestra:
+// - posibles menores: la fecha de nacimiento indica menos de 18 años en una atención de la cohorte;
+// - con historial de menor: la persona tiene, en el archivo, otras atenciones en las que era menor (solo se informa).
+export function revisarMenores(filas, cohorte) {
+  const posibles = new Set();
+  let atencionesPosibles = 0, sinNacimiento = 0;
+  for (const f of cohorte) {
+    if (f.fecha_nacimiento === undefined || !fechaValida(f.fecha_nacimiento)) { sinNacimiento++; continue; }
+    const e = edadEnFecha(f.fecha_nacimiento, f.fecha_ingreso);
+    if (e !== null && e < 18) { posibles.add(f.cedula); atencionesPosibles++; }
+  }
+  const enCohorte = new Set(cohorte.map(f => f.cedula));
+  const conHistorial = new Set(filas.filter(f => enCohorte.has(f.cedula) && edadValida(f.edad) && Number(f.edad) < 18).map(f => f.cedula));
+  return { posibles, personasPosibles: posibles.size, atencionesPosibles, sinNacimiento, personasConHistorialDeMenor: conHistorial.size };
 }
 
 // Combinación de cuasiidentificadores -> personas y diagnósticos (3 caracteres).
@@ -181,6 +214,8 @@ export function validarConfig(c) {
   if (!['region', 'provincia'].includes(c.ubicacion)) e.push('Ubicación inválida.');
   if (!['mes', 'anio'].includes(c.fecha)) e.push('Nivel de fecha inválido.');
   if (!Number.isInteger(c.l) || c.l < 1) e.push('l debe ser un entero de 1 o más.');
+  if (!['completo', 'categoria'].includes(c.dx ?? 'completo')) e.push('Nivel de diagnóstico inválido.');
+  if (!['avisar', 'retirar'].includes(c.menores ?? 'avisar')) e.push('La opción para posibles menores debe ser «avisar» o «retirar».');
   if (c.topeEstancia !== null && (!Number.isInteger(c.topeEstancia) || c.topeEstancia < 1)) {
     e.push('El tope de estancia debe ser un entero positivo o quedar vacío.');
   }
@@ -203,6 +238,8 @@ function iniciosDeEdad(ancho) {
 }
 
 export function grupoEdad(edad, ancho) {
+  if (edad < 12) return '0-11';
+  if (edad < 18) return '12-17';
   if (edad >= 80) return '80+';
   const inicios = iniciosDeEdad(ancho);
   const i = inicios.findLastIndex(x => x <= edad);
@@ -210,9 +247,9 @@ export function grupoEdad(edad, ancho) {
 }
 
 // Lista de grupos que produce un ancho, para mostrarla antes de proteger.
-export function gruposDeEdad(ancho) {
+export function gruposDeEdad(ancho, conMenores = false) {
   const grupos = [];
-  for (let edad = 18; edad <= 80; edad++) {
+  for (let edad = conMenores ? 0 : 18; edad <= 80; edad++) {
     const g = grupoEdad(edad, ancho);
     if (grupos.at(-1) !== g) grupos.push(g);
   }
@@ -243,16 +280,18 @@ export function columnasSalida(config) {
 }
 
 // columna de entrada -> [técnica, parámetro, columna de salida]
-export function plan(config) {
+export function plan(config, conMenores = false) {
   const p = {
     cedula: ['Código aleatorio', 'Sin correspondencia', 'id_paciente_estudio'],
-    edad: ['Generalización', `Rangos de ${config.anchoEdad} años desde 18; 80+; primera atención`, 'grupo_edad'],
+    edad: ['Generalización', `Rangos de ${config.anchoEdad} años desde 18; 80+; primera atención${conMenores ? '; menores en 0-11 y 12-17' : ''}`, 'grupo_edad'],
     sexo: ['Conservar', '', 'sexo'],
     provincia: config.ubicacion === 'region'
       ? ['Jerarquía', 'De provincia a región', 'region'] : ['Conservar', '', 'provincia'],
     fecha_ingreso: ['Generalización', config.fecha === 'mes' ? 'AAAA-MM' : 'AAAA', columnaFecha(config)],
     tipo_atencion: ['Conservar', '', 'tipo_atencion'],
-    diagnostico_cie10: ['Conservar', '', 'diagnostico_cie10'],
+    diagnostico_cie10: (config.dx ?? 'completo') === 'categoria'
+      ? ['Generalización', 'Solo la categoría de 3 caracteres (F32.1 → F32)', 'diagnostico_cie10']
+      : ['Conservar', '', 'diagnostico_cie10'],
     dias_estancia: config.topeEstancia === null
       ? ['Conservar', '', 'dias_estancia']
       : ['Agrupar extremos', `${config.topeEstancia} días o más se agrupan como ${config.topeEstancia}+`, 'dias_estancia'],
@@ -286,7 +325,7 @@ function transformar(cohorte, config) {
     [columnaUbicacion(config)]: config.ubicacion === 'region' ? f.region ?? REGIONES[f.provincia] : f.provincia,
     [columnaFecha(config)]: f.fecha_ingreso.slice(0, config.fecha === 'mes' ? 7 : 4),
     tipo_atencion: f.tipo_atencion,
-    diagnostico_cie10: f.diagnostico_cie10,
+    diagnostico_cie10: (config.dx ?? 'completo') === 'categoria' ? f.diagnostico_cie10.slice(0, 3) : f.diagnostico_cie10,
     dias_estancia: config.topeEstancia !== null && Number(f.dias_estancia) >= config.topeEstancia
       ? `${config.topeEstancia}+` : f.dias_estancia,
   }));
@@ -335,8 +374,8 @@ function codificar(filas, columnas) {
     .sort((a, b) => a.id_paciente_estudio.localeCompare(b.id_paciente_estudio));
 }
 
-function trazarColumnas(cohorte, transformadas, config, nombreOriginal) {
-  return plan(config).map(c => {
+function trazarColumnas(cohorte, transformadas, config, nombreOriginal, conMenores = false) {
+  return plan(config, conMenores).map(c => {
     if (cohorte[0][c.nombre] === undefined) {
       const soloRegion = c.nombre === 'provincia' && cohorte[0].region !== undefined;
       return {
@@ -376,7 +415,7 @@ function trazarColumnas(cohorte, transformadas, config, nombreOriginal) {
   });
 }
 
-export function verificar({ config, salida, columnas, traza, operaciones, despues, cohorte }) {
+export function verificar({ config, salida, columnas, traza, operaciones, despues, cohorte, sinMenores = true, pideMenores = false }) {
   const esperadas = columnasSalida(config);
   const trazadas = traza.map(t => t.columna_salida).filter(c => c !== 'no sale');
   const mismas = (a, b) => a.length === b.length && a.every(x => b.includes(x));
@@ -399,6 +438,8 @@ export function verificar({ config, salida, columnas, traza, operaciones, despue
       despues.identificadores.columnas === 0 && despues.identificadores.texto === 0),
     v('V-07', 'La salida no está vacía', salida.length > 0),
     v('V-08', 'Con l de 2 o más, no quedan grupos homogéneos', config.l < 2 || despues.homogeneos.length === 0),
+    v('V-09', pideMenores ? 'Todas las edades están dentro del rango pedido (incluye menores: dato especial)'
+      : 'Ninguna atención de menores de 18 años en la salida', sinMenores),
   ];
 }
 
@@ -409,8 +450,19 @@ export function ejecutar(cohorte, config, nombreOriginal) {
   if (!cohorte.filas.length) throw new Error('La cohorte está vacía.');
 
   const antes = medir(cohorte.filas, 'cedula', config.k);
-  const transformadas = transformar(cohorte.filas, config);
-  const traza = trazarColumnas(cohorte.filas, transformadas, config, nombreOriginal);
+  // Posibles menores: la configuración propia los retira antes de transformar; la referencia solo avisa.
+  const pideMenores = !!cohorte.menores?.pideMenores;
+  const posibles = cohorte.menores?.posibles ?? new Set();
+  const retirar = !pideMenores && (config.menores ?? 'avisar') === 'retirar' && posibles.size > 0;
+  const filasUsadas = retirar ? cohorte.filas.filter(f => !posibles.has(f.cedula)) : cohorte.filas;
+  if (!filasUsadas.length) throw new Error('No quedan personas después de retirar a los posibles menores de edad.');
+  const personasUsadas = personas(filasUsadas, 'cedula');
+  const transformadas = transformar(filasUsadas, config);
+  const traza = trazarColumnas(filasUsadas, transformadas, config, nombreOriginal, pideMenores);
+  // Con menores pedidos: todas las edades dentro del rango pedido. Sin ellos: ninguna menor de 18.
+  const sinMenores = pideMenores
+    ? filasUsadas.every(f => edadValida(f.edad) && enRangoEdad(f.edad, cohorte.filtro))
+    : filasUsadas.every(f => edadValida(f.edad) && Number(f.edad) >= 18) && (!retirar || !filasUsadas.some(f => posibles.has(f.cedula)));
   const supresion = suprimir(transformadas, config);
   const columnas = columnasSalida(config);
   const salida = codificar(supresion.filas, columnas);
@@ -419,11 +471,14 @@ export function ejecutar(cohorte, config, nombreOriginal) {
   const paso = (operacion, regla, pa, pd, aa, ad) =>
     ({ operacion, regla, personasAntes: pa, personasDespues: pd, atencionesAntes: aa, atencionesDespues: ad });
   const recorrido = [
+    ...(retirar ? [paso('Supresión por posible menor de edad', 'La fecha de nacimiento indica menos de 18 años en alguna atención',
+      cohorte.personas, personasUsadas, cohorte.atenciones, filasUsadas.length)] : []),
     paso('Transformar columnas', 'Técnica definida para cada una de las 28 columnas',
-      cohorte.personas, cohorte.personas, cohorte.atenciones, cohorte.atenciones),
+      personasUsadas, personasUsadas, filasUsadas.length, filasUsadas.length),
     ...supresion.operaciones,
   ];
-  const verificaciones = verificar({ config, salida, columnas, traza, operaciones: recorrido, despues, cohorte });
+  const verificaciones = verificar({ config, salida, columnas, traza, operaciones: recorrido, despues, cohorte, sinMenores, pideMenores });
+  const m = cohorte.menores ?? {};
   const ahora = new Date();
   return {
     id: `R2-${ahora.toISOString().replace(/\D/g, '').slice(0, 14)}-${enteroAleatorio(1e6)}`,
@@ -432,9 +487,17 @@ export function ejecutar(cohorte, config, nombreOriginal) {
     config: { ...config },
     columnas, salida, antes, despues,
     consulta: consultaEstudio(cohorte.filas, salida),
+    // Ataques simulados sobre la salida: solo conteos.
+    riesgo: { trayectoria: riesgoTrayectoria(salida), enlace: pruebaEnlace(filasUsadas, salida, config, grupoEdad) },
     conservadas: 100 * despues.personas / cohorte.personas,
     cohorte: { entrada: cohorte.entrada, excluidas: cohorte.excluidas, filtro: cohorte.filtro,
       etiquetaFiltro: cohorte.etiquetaFiltro, periodo: cohorte.periodo, edad: cohorte.edad, esEstudio: cohorte.esEstudio, personas: cohorte.personas, atenciones: cohorte.atenciones },
+    // Solo conteos: nunca identificadores de las personas.
+    menores: { atencionesExcluidasPorEdad: cohorte.excluidas.edad, atencionesConEdadInvalida: cohorte.excluidas.edadInvalida ?? 0,
+      personasPosiblesMenores: m.personasPosibles ?? 0, atencionesPosiblesMenores: m.atencionesPosibles ?? 0,
+      atencionesSinFechaNacimiento: m.sinNacimiento ?? 0, personasConHistorialDeMenor: m.personasConHistorialDeMenor ?? 0,
+      pideMenores, atencionesDeMenores: m.atencionesDeMenores ?? 0,
+      tratamiento: pideMenores ? 'pedidos por el comité (dato especial)' : retirar ? 'retiradas' : (m.personasPosibles ? 'solo aviso' : 'no hubo') },
     traza,
     recorrido: [
       paso('Cohorte', `${cohorte.etiquetaFiltro}, ${cohorte.edad}, ${cohorte.periodo}`, null, cohorte.personas, cohorte.entrada, cohorte.atenciones),
@@ -444,3 +507,23 @@ export function ejecutar(cohorte, config, nombreOriginal) {
     apto: verificaciones.every(x => x.ok),
   };
 }
+// ---------- Parámetros sugeridos ----------
+// Prueba combinaciones que respetan lo que pide el estudio (año y mes, y región) y ordena las que quedan APTAS:
+// primero las que conservan más personas, luego las que menos cambian la respuesta del estudio,
+// luego las de menor riesgo de trayectoria y, a igualdad, las de más detalle en la edad.
+export function sugerirConfig(cohorte, base) {
+  const candidatas = [];
+  for (const anchoEdad of [10, 15, 20, 25, 30]) {
+    for (const k of [5, 6, 8]) {
+      const config = { ...base, tipo: 'propia', anchoEdad, k, ubicacion: 'region', fecha: 'mes' };
+      let r;
+      try { r = ejecutar(cohorte, config); } catch { continue; }
+      if (r.apto) candidatas.push({ config, conservadas: r.conservadas, kMin: r.despues.kMin,
+        cambio: r.consulta.promedio, trayectoria: r.riesgo.trayectoria.conocida1.pctEnRiesgo });
+    }
+  }
+  const redondo = x => Math.round(x * 10) / 10;
+  return candidatas.sort((a, b) => redondo(b.conservadas) - redondo(a.conservadas) || redondo(a.cambio) - redondo(b.cambio)
+    || redondo(a.trayectoria) - redondo(b.trayectoria) || a.config.anchoEdad - b.config.anchoEdad || a.config.k - b.config.k).slice(0, 3);
+}
+

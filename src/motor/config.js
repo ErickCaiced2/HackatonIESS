@@ -61,5 +61,10 @@ export const REGIONES = Object.fromEntries(
 
 export const REFERENCIA = Object.freeze({
   tipo: 'referencia', k: 5, anchoEdad: 20, ubicacion: 'region', fecha: 'mes', l: 1, topeEstancia: null,
+  // Posibles menores (edad ≥ 18 pero la fecha de nacimiento indica menos de 18 en la atención):
+  // la referencia solo avisa para no alterar los valores de control del reto; la propia los retira.
+  menores: 'avisar',
+  // Diagnóstico: la referencia entrega el código completo; la propia, solo la categoría de 3 caracteres (F32).
+  dx: 'completo',
 });
-export const PROPIA = Object.freeze({ ...REFERENCIA, tipo: 'propia', l: 2, topeEstancia: 30 });
+export const PROPIA = Object.freeze({ ...REFERENCIA, tipo: 'propia', l: 2, topeEstancia: 30, menores: 'retirar', dx: 'categoria' });

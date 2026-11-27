@@ -371,26 +371,29 @@ export const PERIODO_MINIMO = 1980;
 export const anioActual = () => new Date().getFullYear();
 export const PERIODO_ESTUDIO = Object.freeze({ desde: 2023, hasta: 2025 });
 
-// Rango de edad (años cumplidos a la fecha de la atención) que pide el comité.
-// Mínimo 18: los datos de niñas, niños y adolescentes son categoría especial (art. 25 LOPDP)
-// y los grupos de edad del dataset empiezan en 18. edadHasta null = sin límite superior.
-export const EDAD_MINIMA = 18, EDAD_MAXIMA = 105;
-export const EDAD_ESTUDIO = Object.freeze({ edadDesde: EDAD_MINIMA, edadHasta: null });
+// Rango de edad (años cumplidos a la fecha de la atención) que pide el comité. edadHasta null = sin límite superior.
+// El estudio pide adultos (18 o más). El comité puede pedir menores: los datos de niñas, niños y adolescentes
+// son de categoría especial (art. 25 LOPDP) y se marcan como tales en todo el proceso.
+export const EDAD_ADULTA = 18, EDAD_MINIMA = 0, EDAD_MAXIMA = 105;
+export const EDAD_ESTUDIO = Object.freeze({ edadDesde: EDAD_ADULTA, edadHasta: null });
 export const FILTRO_ESTUDIO = Object.freeze({ capitulo: 'V', bloque: '', categoria: '', ...PERIODO_ESTUDIO, ...EDAD_ESTUDIO });
 
 export const rangoEdad = f => ({
-  desde: Number(f.edadDesde ?? EDAD_MINIMA),
+  desde: Number(f.edadDesde ?? EDAD_ADULTA),
   hasta: f.edadHasta === null || f.edadHasta === undefined || f.edadHasta === '' ? null : Number(f.edadHasta),
 });
+export const incluyeMenores = f => rangoEdad(f).desde < EDAD_ADULTA;
 export const etiquetaEdad = f => {
   const { desde, hasta } = rangoEdad(f);
-  return hasta === null ? `${desde} años o más` : desde === hasta ? `${desde} años` : `${desde} a ${hasta} años`;
+  const rango = hasta === null ? `${desde} años o más` : desde === hasta ? `${desde} años` : `${desde} a ${hasta} años`;
+  return incluyeMenores(f) ? `${rango} (incluye menores de edad: dato especial)` : rango;
 };
 export function validarEdad(f) {
   const { desde, hasta } = rangoEdad(f);
   if (!Number.isInteger(desde) || (hasta !== null && !Number.isInteger(hasta))) return 'La edad debe ser un número entero de años.';
-  if (desde < EDAD_MINIMA) return `La edad mínima es ${EDAD_MINIMA} años: no se entregan datos de menores de edad.`;
-  if (desde > EDAD_MAXIMA || (hasta !== null && hasta > EDAD_MAXIMA)) return `La edad debe estar entre ${EDAD_MINIMA} y ${EDAD_MAXIMA} años (o sin límite superior).`;
+  if (desde < EDAD_MINIMA || desde > EDAD_MAXIMA || (hasta !== null && (hasta < EDAD_MINIMA || hasta > EDAD_MAXIMA))) {
+    return `La edad debe estar entre ${EDAD_MINIMA} y ${EDAD_MAXIMA} años (o sin límite superior).`;
+  }
   if (hasta !== null && desde > hasta) return 'La edad inicial no puede ser mayor que la edad final.';
   return '';
 }
@@ -419,7 +422,7 @@ export const enPeriodo = (fecha, f) => {
   return fecha >= `${desde}-01-01` && fecha <= `${hasta}-12-31`;
 };
 
-const esEdadDelEstudio = f => { const e = rangoEdad(f); return e.desde === EDAD_MINIMA && e.hasta === null; };
+const esEdadDelEstudio = f => { const e = rangoEdad(f); return e.desde === EDAD_ADULTA && e.hasta === null; };
 const esPeriodoDelEstudio = f => {
   const p = periodo(f);
   return p.desde === PERIODO_ESTUDIO.desde && p.hasta === PERIODO_ESTUDIO.hasta;

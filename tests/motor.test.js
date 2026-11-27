@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { COLUMNAS, REFERENCIA, PROPIA } from '../src/motor/config.js';
 import { aCSV, parsearCSV } from '../src/motor/csv.js';
-import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, grupoEdad, validarConfig } from '../src/motor/motor.js';
+import { leer, extraerCohorte, contadorPorFiltro, medir, ejecutar, grupoEdad, validarConfig, edadEnFecha, edadValida } from '../src/motor/motor.js';
 import { ptaHTML, trazabilidadJSON, configuracionJSON } from '../src/motor/entregables.js';
 import { sintetico } from './sintetico.js';
 import { nombreCIE10, CATEGORIAS_F, BLOQUES_F, CAPITULOS, bloquesDe, categoriasDe } from '../src/motor/cie10.js';
@@ -50,8 +50,8 @@ test('CSV: comillas, comas, saltos de línea y neutralización de fórmulas', ()
 test('cohorte: exclusiones que cuadran', () => {
   const { cohorte } = preparar();
   const x = cohorte.excluidas;
-  assert.deepEqual(x, { diagnostico: 1, edad: 2, periodo: 1 });
-  assert.equal(cohorte.entrada - x.diagnostico - x.edad - x.periodo, cohorte.atenciones);
+  assert.deepEqual(x, { diagnostico: 1, edadInvalida: 0, edad: 2, periodo: 1 });
+  assert.equal(cohorte.entrada - x.diagnostico - x.edadInvalida - x.edad - x.periodo, cohorte.atenciones);
 });
 
 test('grupos de edad', () => {
@@ -201,7 +201,7 @@ test('periodo: lo elige el operador, entre 1980 y el año actual, con inicio ≤
   for (const filtro of [f(2023, 2023), f(2025, 2025), f(2024, 2024), f(1980, 2026)]) {
     const c = extraerCohorte(datos.filas, filtro);
     assert.equal(contar(filtro), c.personas);
-    assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.edad + c.excluidas.periodo);
+    assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.edadInvalida + c.excluidas.edad + c.excluidas.periodo);
   }
   assert.equal(extraerCohorte(datos.filas, f(2023, 2023)).periodo, '2023');
   assert.equal(extraerCohorte(datos.filas, f(2023, 2025)).periodo, '2023-2025');
@@ -233,28 +233,99 @@ test('edad: el ancho de los rangos es configurable y 10 y 20 conservan los grupo
   assert.ok(r.salida.every(f => gruposDeEdad(15).includes(f.grupo_edad)));
 });
 
-test('edad: el comité elige el rango (mínimo 18) y se aplica igual en el conteo y en la cohorte', async () => {
+test('edad: el comité elige el rango (desde 0, con menores como dato especial) y se aplica igual en el conteo y en la cohorte', async () => {
   const { validarEdad, etiquetaEdad, esDelEstudio, FILTRO_ESTUDIO } = await import('../src/motor/cie10.js');
   const f = (edadDesde, edadHasta) => ({ ...FILTRO_ESTUDIO, edadDesde, edadHasta });
   assert.equal(validarEdad(f(18, null)), '');
   assert.equal(validarEdad(f(30, 30)), '');
-  assert.match(validarEdad(f(17, null)), /mínima es 18/);
+  assert.equal(validarEdad(f(17, null)), '');
+  assert.equal(validarEdad(f(0, 17)), '');
+  assert.match(validarEdad(f(-1, null)), /entre 0 y 105/);
   assert.match(validarEdad(f(40, 30)), /no puede ser mayor/);
-  assert.match(validarEdad(f(18, 200)), /entre 18 y 105/);
+  assert.match(validarEdad(f(18, 200)), /entre 0 y 105/);
   assert.equal(etiquetaEdad(f(18, null)), '18 años o más');
   assert.equal(etiquetaEdad(f(18, 64)), '18 a 64 años');
+  assert.equal(etiquetaEdad(f(10, 17)), '10 a 17 años (incluye menores de edad: dato especial)');
+  assert.equal(esDelEstudio(f(10, null)), false);
   assert.ok(esDelEstudio(f(18, null)));
   assert.equal(esDelEstudio(f(18, 64)), false);
-  assert.throws(() => extraerCohorte(preparar().datos.filas, f(10, null)), /mínima es 18/);
+  // Con menores pedidos, los dos registros de 17 años del sintético entran a la cohorte.
+  assert.equal(extraerCohorte(preparar().datos.filas, f(10, null)).excluidas.edad, 0);
+  assert.throws(() => extraerCohorte(preparar().datos.filas, f(-1, null)), /entre 0 y 105/);
   const { datos } = preparar();
   const contar = contadorPorFiltro(datos.filas);
   for (const filtro of [f(18, null), f(18, 40), f(41, null), f(30, 30), f(90, 105)]) {
     const c = extraerCohorte(datos.filas, filtro);
     assert.equal(contar(filtro), c.personas, etiquetaEdad(filtro));
     assert.ok(c.filas.every(x => Number(x.edad) >= filtro.edadDesde && (filtro.edadHasta === null || Number(x.edad) <= filtro.edadHasta)));
-    assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.edad + c.excluidas.periodo);
+    assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.edadInvalida + c.excluidas.edad + c.excluidas.periodo);
   }
   // Las atenciones se reparten sin solaparse (una persona puede tener atenciones en ambos rangos).
   assert.equal(extraerCohorte(datos.filas, f(18, 40)).atenciones + extraerCohorte(datos.filas, f(41, null)).atenciones,
     extraerCohorte(datos.filas, f(18, null)).atenciones);
 });
+
+// ---------- Menores de edad ----------
+// Copia de una atención adulta del sintético, con otra persona y otros datos.
+function conMenores() {
+  const { datos } = preparar();
+  const base = datos.filas.find(f => f.cedula === '0000000003');
+  const nueva = (cedula, extra) => ({ ...base, cedula, id_atencion: 'AT-X' + cedula, ...extra });
+  return [...datos.filas,
+    // Edad 20 según la columna, pero nació en 2010: tenía 13 años en 2023.
+    nueva('0000000050', { edad: '20', fecha_nacimiento: '2010-05-05' }),
+    // Edad no numérica o fuera de rango: no se puede confirmar que sea adulto.
+    nueva('0000000051', { edad: 'veinte' }),
+    nueva('0000000052', { edad: '' }),
+    nueva('0000000053', { edad: '130' }),
+    // Persona adulta en la cohorte que también tiene una atención como menor (fuera de la cohorte).
+    nueva('0000000054', { edad: '18', fecha_nacimiento: '2005-01-01', fecha_ingreso: '2023-06-01' }),
+    nueva('0000000054', { edad: '16', fecha_nacimiento: '2005-01-01', fecha_ingreso: '2021-06-01', id_atencion: 'AT-Y54' })];
+}
+
+test('menores: edad no válida se excluye y el conteo previo coincide', () => {
+  const filas = conMenores();
+  const c = extraerCohorte(filas);
+  assert.equal(c.excluidas.edadInvalida, 3);
+  assert.equal(contadorPorFiltro(filas)(c.filtro), c.personas);
+  assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.edadInvalida + c.excluidas.edad + c.excluidas.periodo);
+  assert.ok(['20', '0', '105'].every(edadValida) && !['veinte', '', '130', '-1', '2.5'].some(edadValida));
+  assert.equal(edadEnFecha('2010-05-05', '2023-05-04'), 12);
+  assert.equal(edadEnFecha('2010-05-05', '2023-05-05'), 13);
+});
+
+test('menores: la fecha de nacimiento delata a un menor; la propia lo retira y la referencia solo avisa', async () => {
+  const c = extraerCohorte(conMenores());
+  assert.equal(c.menores.personasPosibles, 1);
+  assert.equal(c.menores.personasConHistorialDeMenor, 1);
+  const propia = ejecutar(c, PROPIA);
+  assert.equal(propia.menores.tratamiento, 'retiradas');
+  assert.equal(propia.recorrido.find(o => o.operacion === 'Supresión por posible menor de edad').personasDespues, c.personas - 1);
+  assert.ok(propia.verificaciones.find(v => v.id === 'V-09').ok);
+  assert.ok(propia.verificaciones.find(v => v.id === 'V-04').ok, 'personas y atenciones cuadran con el retiro');
+  const ref = ejecutar(c, REFERENCIA);
+  assert.equal(ref.menores.tratamiento, 'solo aviso');
+  assert.ok(!ref.recorrido.some(o => o.operacion === 'Supresión por posible menor de edad'));
+  // Sin identificadores: el informe solo lleva conteos.
+  const informe = await trazabilidadJSON(propia, 'x', 'y');
+  assert.ok(informe.includes('proteccion_menores') && !informe.includes('0000000050'));
+  assert.match(ptaHTML(propia, { riesgo: 'r', titular: 't' }), /art. 25 LOPDP/);
+  assert.equal(validarConfig({ ...PROPIA, menores: 'ignorar' }).length, 1);
+});
+
+test('menores pedidos por el comité: se entregan como dato especial, en grupos 0-11 y 12-17', async () => {
+  const filtro = { capitulo: 'V', bloque: '', categoria: '', desde: 2023, hasta: 2025, edadDesde: 0, edadHasta: null };
+  const c = extraerCohorte(conMenores(), filtro);
+  assert.ok(c.menores.pideMenores);
+  assert.equal(c.excluidas.edad, 0, 'nadie queda fuera por ser menor');
+  assert.ok(c.menores.atencionesDeMenores >= 2);
+  assert.deepEqual([5, 11, 12, 17, 18].map(e => grupoEdad(e, 20)), ['0-11', '0-11', '12-17', '12-17', '18-39']);
+  const r = ejecutar(c, PROPIA);
+  assert.equal(r.menores.tratamiento, 'pedidos por el comité (dato especial)');
+  assert.ok(!r.recorrido.some(o => o.operacion === 'Supresión por posible menor de edad'));
+  const v9 = r.verificaciones.find(v => v.id === 'V-09');
+  assert.ok(v9.ok && /dato especial/.test(v9.texto));
+  assert.ok(r.traza.find(x => x.variable === 'edad').parametro.includes('0-11 y 12-17'));
+  assert.match(ptaHTML(r, { riesgo: 'r', titular: 't' }), /Dato especial:/);
+});
+

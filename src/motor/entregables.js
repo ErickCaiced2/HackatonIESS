@@ -34,6 +34,8 @@ export async function trazabilidadJSON(r, huellaCSV, huellaConfig, acuerdoEn = n
       atenciones_antes: o.atencionesAntes, atenciones_despues: o.atencionesDespues,
     })),
     estandarizacion_previa: r.estandarizacion ?? null,
+    proteccion_menores: r.menores ?? null,
+    pruebas_de_ataque: r.riesgo ?? null,
     columnas: r.traza,
     verificaciones: r.verificaciones,
   }, null, 2);
@@ -46,6 +48,16 @@ const tabla = (cab, filas) =>
     .map(f => `<tr>${f.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table>`;
 
 export const BORRADOR_RIESGO = 'El riesgo residual no es cero. La métrica k del reto no incluye la fecha de atención, el tipo de atención, el diagnóstico ni los días de estancia: quien conozca esos datos podría acotar a una persona. Medidas: uso exclusivo para este estudio, acceso restringido, prohibido reidentificar o cruzar con otras fuentes y publicar solo resultados agregados. El riesgo se reevalúa al menos una vez al año.';
+// Resumen para el titular en lenguaje simple, según lo que pidió la petición.
+export function resumenTitular(r) {
+  const que = r.cohorte.esEstudio && r.cohorte.etiquetaFiltro?.includes('(F00-F99)')
+    ? 'atenciones de salud mental' : `atenciones con diagnóstico ${r.cohorte.etiquetaFiltro}`;
+  return `Se usaron datos de ${que} (periodo ${r.cohorte.periodo}, ${r.cohorte.edad}) para un estudio. `
+    + 'Se quitaron los datos que le identifican directamente (como su nombre, cédula o teléfono), se redujo el detalle de otros '
+    + `y se retiraron grupos pequeños: en los datos entregados cada persona se confunde con al menos ${Math.max(0, r.despues.kMin - 1)} más `
+    + 'según su grupo de edad, sexo y ubicación. No se guarda ninguna tabla que permita volver a saber quién es. '
+    + 'Ningún método elimina todo el riesgo. Sobre sus datos en el IESS conserva los derechos que reconoce la ley, entre ellos información y acceso.';
+}
 export const BORRADOR_TITULAR = 'Se usaron datos de atenciones de salud mental de 2023 a 2025 para estudiar cómo se distribuyen por región y sexo. Se quitaron los datos que le identifican directamente, se redujo el detalle de otros y se retiraron grupos pequeños para dificultar que alguien sepa quién es usted. Ningún método elimina todo el riesgo. Sobre sus datos en el IESS conserva los derechos que reconoce la ley, entre ellos información y acceso.';
 
 // Las cuatro primeras condiciones vienen de la solicitud del investigador; el resto son propuesta del equipo.
@@ -92,6 +104,7 @@ ${tabla(['Campo', 'Valor'], [
     ['Ejecución', r.id]])}
 <h2>2. Minimización</h2>
 <p>Cohorte: atenciones con diagnóstico ${esc(r.cohorte.etiquetaFiltro)}, de personas de ${esc(r.cohorte.edad ?? '18 años o más')} a la fecha de la atención, con fecha de ingreso en ${esc(r.cohorte.periodo ?? '2023-2025')}. Se entregan: ${esc(r.columnas.join(', '))}. El resto se elimina porque el estudio no lo pide; la cédula solo sirve para unir las atenciones.</p>
+${r.menores?.pideMenores ? `<p><strong>Dato especial:</strong> la petición incluye datos de niñas, niños y adolescentes (categoría especial, art. 25 LOPDP), pedidos por el comité de ética: ${r.menores.atencionesDeMenores} atención(es) de menores en la cohorte. Sus edades se agrupan en 0-11 y 12-17, se aplican las mismas reglas de k y diversidad, y la fecha de nacimiento nunca se entrega.</p>` : r.menores ? `<p>Protección de niñas, niños y adolescentes (categoría especial, art. 25 LOPDP): no se entregan atenciones de menores de 18 años. Se excluyeron ${r.menores.atencionesExcluidasPorEdad} atención(es) por edad y ${r.menores.atencionesConEdadInvalida} por edad no válida. ${r.menores.personasPosiblesMenores} persona(s) tenían 18 años o más según la columna de edad, pero menos según su fecha de nacimiento: ${r.menores.tratamiento === 'retiradas' ? 'se retiraron' : 'se informaron sin retirarlas, porque la configuración de referencia no lo hace'}. La fecha de nacimiento nunca se entrega.</p>` : ''}
 ${r.estandarizacion ? `<p>Antes de anonimizar, el archivo de origen (${r.estandarizacion.columnas_de_entrada} columnas) se estandarizó: un modelo local (${esc(r.estandarizacion.modelo)}), entrenado con datos inventados, propuso qué es cada columna y una persona lo confirmó. El detalle está en el informe de trazabilidad.</p>` : ''}
 <h2>3. Clasificación y técnicas por variable</h2>
 ${tabla(['Variable', 'Clasificación', 'Técnica', 'Parámetro', 'Justificación', 'Celdas modificadas'],
@@ -110,6 +123,15 @@ ${tabla(['Operación', 'Regla', 'Personas', 'Atenciones'], pasos)}
 <h2>5. Riesgo residual y mitigación</h2><p>${esc(riesgo)}</p>
 ${atacante ? `<p>Supuesto sobre quién podría intentar reidentificar: ${esc(atacante)}</p>` : ''}
 <h2>6. Resumen para el titular</h2><p>${esc(titular)}</p>
+${r.riesgo ? `<h2>Pruebas de ataque sobre la salida</h2>
+${tabla(['Prueba', 'Resultado'], [
+    ['Registro auxiliar (edad exacta, sexo y provincia): personas únicas antes de proteger', `${r.riesgo.enlace.antes.unicos} (${pct(r.riesgo.enlace.antes.pctUnicos)})`],
+    ['Registro auxiliar: personas únicas con los datos protegidos', `${r.riesgo.enlace.despues.unicos} (${pct(r.riesgo.enlace.despues.pctUnicos)})`],
+    ['Reidentificación esperada por el registro: antes → después', `${pct(r.riesgo.enlace.antes.reidentificacionEsperada)} → ${pct(r.riesgo.enlace.despues.reidentificacionEsperada)}`],
+    ['Trayectoria: si el atacante conoce 1 atención (mes y tipo), personas que quedan entre menos de 5', pct(r.riesgo.trayectoria.conocida1.pctEnRiesgo)],
+    ['Trayectoria: si conoce 2 atenciones', pct(r.riesgo.trayectoria.conocida2.pctEnRiesgo)],
+  ])}
+<p>La prueba de trayectoria muestra el riesgo residual que la k del reto no mide. El registro auxiliar es ${r.riesgo.enlace.simulado ? 'simulado (peor caso: el atacante sabe que su objetivo está en el estudio)' : 'el proporcionado'}.</p>` : ''}
 ${canal ? `<p>Canal para ejercer sus derechos: ${esc(canal)}</p>` : ''}
 </body></html>`;
 }

@@ -1,0 +1,8 @@
+{
+  "name": "sead-iess-conector",
+  "private": true,
+  "type": "module",
+  "description": "Conector local de solo lectura entre SEAD-IESS y PostgreSQL",
+  "scripts": { "start": "node servidor.mjs" },
+  "dependencies": { "pg": "8.13.1" }
+}

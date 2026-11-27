@@ -615,3 +615,7 @@ input[type=file] { max-width: 100%; }
 code.huella { font: 12.5px/1.4 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; color: var(--texto); }
 .verificar-csv { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 12px 16px; border: 1px solid var(--borde); border-radius: var(--radio-chico); background: var(--superficie-2); }
 .verificar-csv p { margin: 2px 0 0; }
+
+/* Nota de dato especial (petición con menores de edad): visible, no solo gris */
+.nota-especial { padding: 8px 12px; border: 1px solid #f1d7a8; border-radius: var(--radio-chico); background: var(--av-f); color: var(--texto); }
+.nota-especial strong { color: var(--av); }
