@@ -1,0 +1,77 @@
+# Todo corre en este equipo: los datos no salen del evento.
+# Solo Caddy publica un puerto (443, HTTPS con certificado interno). La API y la base no se exponen.
+name: iess-r2
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: iess
+      POSTGRES_USER: iess_dueno
+      POSTGRES_PASSWORD: ${IESS_DB_CLAVE_DUENO:?Defina IESS_DB_CLAVE_DUENO en .env}
+      IESS_DB_ROL_APP: iess_app
+      IESS_DB_CLAVE_APP: ${IESS_DB_CLAVE_APP:?Defina IESS_DB_CLAVE_APP en .env}
+    volumes:
+      - datos-db:/var/lib/postgresql/data
+      - ./backend/infra/crear_rol_app.sh:/docker-entrypoint-initdb.d/10-crear_rol_app.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iess_dueno -d iess"]
+      interval: 3s
+      retries: 20
+    networks: [interna]
+
+  # Corre una vez con el usuario dueño de la base y termina. La API nunca recibe esa credencial.
+  migrar:
+    build:
+      context: ./backend
+      args:
+        DEV: ${IESS_DEV:-0}
+    image: iess-r2-api
+    entrypoint: ["alembic", "upgrade", "head"]
+    environment:
+      IESS_DATABASE_URL_DUENO: postgresql+psycopg://iess_dueno:${IESS_DB_CLAVE_DUENO}@db:5432/iess
+      IESS_DB_ROL_APP: iess_app
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [interna]
+
+  api:
+    image: iess-r2-api
+    environment:
+      IESS_ENTORNO: ${IESS_ENTORNO:-produccion}
+      IESS_DATABASE_URL: postgresql+psycopg://iess_app:${IESS_DB_CLAVE_APP}@db:5432/iess
+      IESS_ORIGENES_PERMITIDOS: '["https://localhost"]'
+    volumes:
+      - claves-jwt:/srv/claves
+    depends_on:
+      migrar:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [interna]
+
+  proxy:
+    image: caddy:2-alpine
+    ports:
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - datos-caddy:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on: [api]
+    networks: [interna]
+
+volumes:
+  datos-db:
+  claves-jwt:
+  datos-caddy:
+
+networks:
+  interna:

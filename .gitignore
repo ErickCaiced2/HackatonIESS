@@ -49,3 +49,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 /documentos
+
+# Backend
+!.env.example
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+backend/claves/
