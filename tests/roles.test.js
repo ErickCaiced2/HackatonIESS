@@ -50,7 +50,12 @@ test('peticiones: el comité crea, TI devuelve o procesa y publica, el destinata
   for (const tipo of ['zip', 'config', 'traza', 'pta']) {
     assert.throws(() => pet.registrarDescarga(p.id, { archivo: 'a.' + tipo, tipo }, doc), /solo puede descargar el CSV/);
   }
-  pet.registrarDescarga(p.id, { archivo: 'a.csv', tipo: 'csv', sha256: 'ab'.repeat(32) }, doc);
+  // El OTP es obligatorio; un código equivocado no consume la única descarga.
+  for (const otp of [undefined, '', '124']) {
+    assert.throws(() => pet.registrarDescarga(p.id, { archivo: 'a.csv', tipo: 'csv', otp }, doc), /OTP/);
+  }
+  pet.registrarDescarga(p.id, { archivo: 'a.csv', tipo: 'csv', sha256: 'ab'.repeat(32), otp: '123' }, doc);
+  assert.throws(() => pet.registrarDescarga(p.id, { archivo: 'a.csv', tipo: 'csv', otp: '123' }, doc), /solo se permite una descarga/);
   const final = pet.obtener(p.id);
   assert.equal(final.estado, 'descargada');
   assert.deepEqual(final.descargas.map(d => [d.tipo, d.sha256]), [['csv', 'ab'.repeat(32)]]);

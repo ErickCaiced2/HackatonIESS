@@ -4,6 +4,7 @@ import { h, boton, aviso, tablaAdaptable, notificar, datosClave } from './dom.js
 import { icono } from './iconos.js';
 import { ACUERDO, sha256 } from '../motor/entregables.js';
 import { etiquetaDestinatario } from '../motor/destinatario.js';
+import { otpValido } from '../motor/peticiones.js';
 import { describirFiltro } from './campos.js';
 import { etiquetaEstado } from './comite.js';
 import { peticiones, registro, sesion, log, mostrarError, fechaCorta, fechaHora, descargar } from './servicios.js';
@@ -13,7 +14,7 @@ const DISPONIBLES = ['publicada', 'firmada', 'descargada'];
 let abierta = null;
 
 // El destinatario solo descarga el CSV. Antes de entregarlo se comprueba que coincide con la huella registrada al publicar.
-async function descargarCSV(p, repintar) {
+async function descargarCSV(p, otp, repintar) {
   const u = sesion.actual();
   try {
     const e = await leerArchivo('entrega:' + p.id);
@@ -23,13 +24,43 @@ async function descargarCSV(p, repintar) {
     if (esperada && huella !== esperada) throw new Error('El CSV guardado no coincide con la huella registrada al publicar. No se entrega: avise a TI.');
     const nombre = e.base + '_salida.csv';
     // Se registra antes de entregar el archivo.
-    peticiones.registrarDescarga(p.id, { archivo: nombre, tipo: 'csv', sha256: huella }, u);
+    peticiones.registrarDescarga(p.id, { archivo: nombre, tipo: 'csv', sha256: huella, otp }, u);
     registro.descarga(e.ejecucionId, nombre, new Date().toISOString(), { ...p.destinatario });
     log('descarga', 'Descarga CSV', `${nombre} · SHA-256 ${huella}`, { referencia: p.id });
     descargar(nombre, e.csv, 'text/csv;charset=utf-8');
     notificar('ok', `Se envió a descargas: ${nombre}.`);
     repintar();
   } catch (err) { mostrarError(err.message, 'Descargar entregable'); }
+}
+
+// Avisa del envío del código y lo pide antes de entregar el CSV.
+function pedirOTP(p, repintar) {
+  const MENSAJE = 'Un código OTP llegará a su correo.';
+  const d = document.getElementById('dialogo');
+  const campo = h('input', { type: 'text', id: 'otp', inputMode: 'numeric', autocomplete: 'one-time-code', maxLength: 6 });
+  const error = h('p', { className: 'error-campo mal', role: 'alert' });
+  const validar = e => {
+    e.preventDefault();
+    if (!otpValido(campo.value)) {
+      error.textContent = 'El código OTP no es correcto.';
+      log('descarga', 'Código OTP rechazado', '', { referencia: p.id, resultado: 'fallo' });
+      campo.select();
+      return;
+    }
+    d.close();
+    descargarCSV(p, campo.value.trim(), repintar);
+  };
+  d.replaceChildren(h('form', { onsubmit: validar, noValidate: true },
+    h('h2', {}, 'Código de verificación'),
+    h('p', {}, MENSAJE, ' Escríbalo para descargar el CSV. Permite una sola descarga.'),
+    h('label', {}, 'Código OTP', campo), error,
+    h('div', { className: 'acciones' },
+      boton('Cancelar', () => d.close()),
+      h('button', { type: 'submit', className: 'principal', id: 'otp-confirmar' }, 'Verificar y descargar'))));
+  d.oncancel = null;
+  notificar('aviso', MENSAJE);
+  d.showModal();
+  campo.focus();
 }
 
 function vistaPeticion(p, contenedor) {
@@ -65,7 +96,8 @@ function vistaPeticion(p, contenedor) {
     h('section', { className: 'descargas' + (firmada ? '' : ' congelado'), 'aria-labelledby': 'desc-h' },
       h('h3', { id: 'desc-h', className: 'con-icono' }, !firmada && icono('candado'), firmada ? 'Descarga del CSV' : 'Descarga del CSV (bloqueada)'),
       !firmada && h('p', { className: 'nota' }, 'Se habilita al firmar el acuerdo de confidencialidad.'),
-      h('div', { className: 'acciones' }, boton('Descargar el CSV', () => descargarCSV(p, repintar), { id: 'bajar-csv', className: 'principal', disabled: !firmada })),
+      p.descargas.length > 0 && aviso('ok', 'El CSV ya se descargó. El código OTP permite una sola descarga.'),
+      h('div', { className: 'acciones' }, boton('Descargar el CSV', () => pedirOTP(p, repintar), { id: 'bajar-csv', className: 'principal', disabled: !firmada || p.descargas.length > 0 })),
       p.ejecucion?.sha256CSV && datosClave([['Huella SHA-256 del CSV', h('code', { className: 'huella' }, p.ejecucion.sha256CSV)]]),
       h('p', { className: 'nota' }, 'La huella identifica este archivo exacto y su entrega a usted. Si el archivo se modifica, la huella cambia; si se comparte, TI puede comprobar de qué entrega salió.'),
       p.descargas.length > 0 && tablaAdaptable(['Archivo', 'Fecha', 'Huella SHA-256'],

@@ -24,6 +24,11 @@ const TRANSICIONES = {
 
 const PDF_MAXIMO = 10 * 1024 * 1024;
 
+// Prototipo: OTP fijo y envío por correo simulado. Un sistema real genera uno aleatorio,
+// con caducidad, y lo envía y verifica desde un servidor.
+const OTP_PRUEBA = '123';
+export const otpValido = codigo => String(codigo ?? '').trim() === OTP_PRUEBA;
+
 export function validarPeticion({ destinatario, filtro, aprobacion }) {
   const e = [];
   const d = validarDestinatario(destinatario);
@@ -110,11 +115,14 @@ export function crearPeticiones(almacen = globalThis.localStorage) {
       });
     },
     // El destinatario solo recibe el CSV; configuración, trazabilidad y PTA son de uso interno de TI.
-    registrarDescarga(id, { archivo, tipo, sha256 = '' }, usuario) {
+    // El OTP autoriza una única descarga del CSV por petición.
+    registrarDescarga(id, { archivo, tipo, sha256 = '', otp }, usuario) {
       return modificar(id, p => {
         if (!mismoDestinatario(p.destinatario, usuario.destinatario)) throw new Error('Solo el destinatario de la petición puede descargar.');
         if (!p.firmadoEn) throw new Error('Firme el acuerdo de confidencialidad antes de descargar.');
         if (tipo !== 'csv') throw new Error('El destinatario solo puede descargar el CSV. Los demás archivos son de uso interno de TI.');
+        if (p.descargas.length) throw new Error('El CSV de esta petición ya se descargó: solo se permite una descarga.');
+        if (!otpValido(otp)) throw new Error('El código OTP no es correcto.');
         const fecha = new Date().toISOString();
         if (p.estado === 'firmada') cambiarEstado(p, 'descargada', usuario.usuario);
         p.descargas.push({ archivo, tipo, fecha, por: usuario.usuario, sha256 });
