@@ -4,22 +4,22 @@ Abre **index.html** en Chrome, Edge o Firefox de escritorio. El archivo incluye 
 
 ## Exposición
 
-Ocho diapositivas en formato 16:9. El recorrido dura 13 minutos y deja dos minutos para preguntas. El índice y las notas muestran el tiempo de cada diapositiva.
+Seis diapositivas en formato 16:9 con palabras clave y conectores animados. La segunda presenta SEAD-IESS, la quinta muestra las tres fases del proceso y la última cierra con la identidad del producto.
 
 | Acción | Control |
 | --- | --- |
 | Avanzar o retroceder | Flechas, Av Pág / Re Pág o botones inferiores |
-| Ir a una diapositiva | Teclas 1 a 8 o segmentos de progreso |
+| Ir a una diapositiva | Teclas 1 a 6 |
 | Ir al inicio o al cierre | Inicio / Fin |
-| Abrir el índice | I |
-| Consultar las notas | N |
 | Entrar o salir de pantalla completa | F |
 | Cerrar un panel | Esc |
 | Recorrer y activar controles | Tab, Mayús + Tab, Intro o Espacio |
 
-Las notas se abren en la misma pantalla del navegador. Si se proyecta esa ventana, el público también verá el panel.
+En la quinta diapositiva, el avance circular de cada nodo llega al 100 %, aparece un visto y se activa la siguiente fase. Con movimiento reducido, el flujo se muestra completo.
 
 ## Demostración del flujo
+
+La versión técnica anterior está disponible en **index.html?vista=tecnica**. Los detalles siguientes corresponden a esa versión de ocho diapositivas.
 
 En la diapositiva 4, la **Vista general** recorre minimización, supresión, código aleatorio, generalización, verificación y salida. **Decisiones** muestra el retorno para ajustar los datos y la ruta de bloqueo. Puedes cambiar de vista sin reiniciar. **Ejecutar**, **Pausar**, **Avanzar** y **Reiniciar** controlan la secuencia. Seleccionar un paso abre un detalle breve.
 

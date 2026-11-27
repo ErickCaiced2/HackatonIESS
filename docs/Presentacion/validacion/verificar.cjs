@@ -11,7 +11,7 @@ async function verify() {
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined
   });
   const output = process.env.DECK_CAPTURAS || path.join(__dirname, 'capturas');
-  const entry = pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
+  const entry = pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href + '?vista=tecnica';
   await fs.mkdir(output, { recursive: true });
   const errors = [];
   const network = [];

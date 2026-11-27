@@ -9,7 +9,7 @@ const assert=require('node:assert/strict');
    const page=await browser.newPage({viewport:{width,height}});
    const errors=[];
    page.on('pageerror',e=>errors.push(e.message));
-   await page.goto(pathToFileURL(path.resolve(__dirname,'../index.html')).href);
+   await page.goto(pathToFileURL(path.resolve(__dirname,'../index.html')).href+'?vista=tecnica');
    await page.evaluate(()=>document.fonts.ready);
    assert.equal(await page.locator('#slide-nav button').count(),2);
    assert.equal(await page.locator('#footer,.masthead,#notes-btn').count(),0);
