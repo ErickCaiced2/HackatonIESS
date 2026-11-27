@@ -20,8 +20,6 @@
     <div id="vistas" class="vistas" role="group" aria-label="Secciones" hidden></div>
     <div class="acciones">
       <div id="usuario" class="usuario" hidden></div>
-      <button type="button" id="ayuda-abrir">Ayuda y glosario ?</button>
-      <button type="button" id="reiniciar" hidden>Empezar de nuevo</button>
       <button type="button" id="cerrar-sesion" hidden>Cerrar sesión</button>
     </div>
   </header>
@@ -34,17 +32,25 @@
   <div id="doc-peticiones" class="tablero" hidden></div>
 
   <div class="disposicion" id="proceso" hidden>
-    <nav aria-label="Secciones del panel">
-      <div id="progreso"></div>
-      <ul id="menu"></ul>
-      <p class="nota">Atajos: Alt + 0 tablero, Alt + 1 a 5 pasos</p>
-    </nav>
+    <div class="lateral">
+      <nav id="menu-lateral" aria-label="Secciones del panel">
+        <button type="button" id="plegar-menu" aria-controls="menu-lateral"></button>
+        <div id="progreso"></div>
+        <ul id="menu"></ul>
+        <button type="button" id="reiniciar" title="Empezar de nuevo" aria-label="Empezar de nuevo"><span class="texto-menu">Empezar de nuevo</span></button>
+        <p class="nota">Atajos: Alt + 0 tablero, Alt + 1 a 5 pasos</p>
+      </nav>
+      <div id="tirador-menu" class="tirador" role="separator" aria-orientation="vertical" aria-controls="menu-lateral" aria-label="Ancho del menú" tabindex="0" title="Arrastre para cambiar el ancho. Doble clic: ancho original"></div>
+    </div>
     <div class="principal-columna">
       <div id="siguiente"></div>
       <div id="ocupado" role="status" hidden></div>
       <main id="contenido" tabindex="-1"></main>
     </div>
   </div>
+
+  <!-- Ayuda disponible en todas las pantallas. -->
+  <button type="button" id="ayuda-abrir" class="ayuda-flotante" aria-label="Ayuda y glosario" title="Ayuda y glosario" aria-haspopup="dialog"><span aria-hidden="true">?</span></button>
 
   <dialog id="dialogo" aria-label="Confirmación"></dialog>
   <dialog id="detalle-ejecucion" class="dialogo-ancho" aria-labelledby="detalle-titulo"></dialog>

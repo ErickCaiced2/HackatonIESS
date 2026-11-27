@@ -7,7 +7,7 @@ import { num, pct, ident, sha256, configuracionJSON, trazabilidadJSON, ptaHTML, 
 import { entradaDeEjecucion, filtrarRegistro, paginar, TAMANOS_PAGINA, diaLocal } from '../motor/registro.js';
 import { etiquetaDestinatario } from '../motor/destinatario.js';
 import { ROLES } from '../motor/usuarios.js';
-import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar } from './dom.js';
+import { h, boton, tabla, tablaAdaptable, etiqueta, aviso, detalle, tablaConBusqueda, confirmar, notificar, ICONOS } from './dom.js';
 import { registro, peticiones, sesion, log, mostrarError, fechaHora, fechaCorta } from './servicios.js';
 import { describirFiltro } from './campos.js';
 import { guardarArchivo } from './archivos.js';
@@ -15,6 +15,7 @@ import { pintarLogin } from './sesion.js';
 import { pintarComite } from './comite.js';
 import { pintarDoctor, reiniciarDoctor } from './doctor.js';
 import { pintarTiPeticiones, pintarTiLogs, pintarTiTablero } from './ti.js';
+import { icono, iniciarMenuLateral } from './menu-lateral.js';
 import { analizar, decisionesIniciales, estandarizar } from '../ia/estandarizar.js';
 import { panelRevision } from './revision.js';
 
@@ -28,6 +29,7 @@ const inicial = () => ({
 let S = inicial();
 let pestana = 'recorrido', ocupado = false;
 let vista = '';
+let menuLateral = null;
 
 const $ = id => document.getElementById(id);
 
@@ -444,14 +446,23 @@ function siguientePaso() {
 function pintarNavegacion() {
   const [texto, destino] = siguientePaso();
   const hechos = SECCIONES.filter(([, , , , estado]) => estado()[0] === 'ok').length;
-  $('progreso').replaceChildren(h('label', {}, `Avance: ${hechos} de ${SECCIONES.length}`,
-    h('progress', { max: SECCIONES.length, value: hechos })));
-  $('menu').replaceChildren(...SECCIONES.map(([id, titulo, , , estado]) =>
-    h('li', {}, h('a', { href: '#' + id, onclick: e => { e.preventDefault(); irA(id); } },
-      h('span', {}, titulo), etiqueta(...estado())))));
+  const avance = `Avance: ${hechos} de ${SECCIONES.length}`;
+  $('progreso').replaceChildren(h('label', { title: avance },
+    h('span', { className: 'texto-menu' }, avance),
+    h('span', { className: 'avance-corto', 'aria-hidden': 'true' }, `${hechos}/${SECCIONES.length}`),
+    h('progress', { max: SECCIONES.length, value: hechos, 'aria-label': avance })));
+  // Con el menú angosto quedan el ícono y la marca de estado; el nombre se ve al pasar el cursor.
+  $('menu').replaceChildren(...SECCIONES.map(([id, titulo, , , estado]) => {
+    const [tipo, texto] = estado(), nombre = `${titulo}: ${texto}`;
+    return h('li', {}, h('a', { href: '#' + id, title: nombre, 'aria-label': nombre, onclick: e => { e.preventDefault(); irA(id); } },
+      icono(id),
+      h('span', { className: 'texto-menu' }, h('span', {}, titulo), etiqueta(tipo, texto)),
+      h('span', { className: 'marca-estado ' + tipo, 'aria-hidden': 'true' }, ICONOS[tipo])));
+  }));
   $('siguiente').replaceChildren(h('span', {}, h('strong', {}, 'Siguiente paso: '), texto),
     boton('Ir', () => irA(destino), { 'aria-label': 'Ir al siguiente paso' }));
   $('reiniciar').disabled = !S.datos && !S.revision;
+  menuLateral?.recalcular();
 }
 
 // ---------- Vistas por rol ----------
@@ -494,7 +505,6 @@ function pintarCabecera(u) {
   $('usuario').replaceChildren(...(u ? [h('span', { className: 'usuario-nombre', title: ROLES[u.rol] }, u.nombre), h('small', {}, u.usuario)] : []));
   $('usuario').hidden = !u;
   $('cerrar-sesion').hidden = !u;
-  $('reiniciar').hidden = !(u?.rol === 'ti' && vista === 'proceso');
 }
 
 async function cerrarSesion() {
@@ -684,6 +694,7 @@ function pintarProceso() {
   if (foco) $(foco)?.focus?.({ preventScroll: true });
 }
 
+menuLateral = iniciarMenuLateral({ disposicion: $('proceso'), plegar: $('plegar-menu'), tirador: $('tirador-menu'), reiniciar: $('reiniciar') });
 $('reiniciar').addEventListener('click', empezarDeNuevo);
 $('cerrar-sesion').addEventListener('click', cerrarSesion);
 $('ayuda-abrir').addEventListener('click', () => $('ayuda').showModal());

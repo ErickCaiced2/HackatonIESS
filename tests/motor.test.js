@@ -8,6 +8,21 @@ import { ptaHTML, trazabilidadJSON, configuracionJSON } from '../src/motor/entre
 import { sintetico } from './sintetico.js';
 import { nombreCIE10, CATEGORIAS_F, BLOQUES_F, CAPITULOS, bloquesDe, categoriasDe } from '../src/motor/cie10.js';
 import { zip } from '../src/motor/zip.js';
+import { ajustarAncho, limiteAncho, MENU } from '../src/ui/menu-lateral.js';
+
+test('menú lateral: el ancho se limita y por debajo del umbral queda solo con íconos', () => {
+  assert.equal(ajustarAncho(240), 240);
+  assert.equal(ajustarAncho(MENU.umbral), MENU.umbral);
+  assert.equal(ajustarAncho(MENU.umbral - 1), MENU.compacto);
+  assert.equal(ajustarAncho(-50), MENU.compacto);
+  assert.equal(ajustarAncho(9999), MENU.maximo);
+  assert.equal(ajustarAncho('x'), MENU.inicial);
+  // El tope sale del contenido: fin del texto más largo + 50 px, nunca menor que el umbral.
+  assert.equal(limiteAncho(150), 200);
+  assert.equal(limiteAncho(150, 190), 220);
+  assert.equal(limiteAncho(60), MENU.umbral);
+  assert.equal(ajustarAncho(900, limiteAncho(150)), 200);
+});
 
 const preparar = () => {
   const datos = leer(sintetico());
