@@ -106,7 +106,7 @@ function filtroPeticion() {
   S.contar ??= contadorPorFiltro(S.datos.filas);
   return h('div', { className: 'filtro-peticion' },
     h('p', {}, h('strong', {}, `Filtro de la petición ${S.peticion.id}: `), describirFiltro(S.filtro)),
-    h('p', { className: 'nota' }, `En este archivo hay ${num(S.contar(S.filtro))} personas de 18 años o más con este filtro. Lo definió el comité de ética y no se cambia aquí.`));
+    h('p', { className: 'nota' }, `En este archivo hay ${num(S.contar(S.filtro))} personas con este filtro (diagnóstico, edad y periodo). Lo definió el comité de ética y no se cambia aquí.`));
 }
 
 function panelDatos() {
@@ -144,7 +144,7 @@ function panelDatos() {
     c && detalle('exclusiones', 'Ver por qué se excluyeron atenciones', tabla(['Concepto', 'Atenciones'], [
       ['Atenciones en el archivo', num(c.entrada)],
       [`− Diagnóstico fuera del filtro (${c.etiquetaFiltro})`, num(c.excluidas.diagnostico)],
-      ['− Menor de 18 años en la fecha de atención', num(c.excluidas.menor)],
+      [`− Edad fuera del rango (${c.edad}) en la fecha de atención`, num(c.excluidas.edad)],
       [`− Fuera del periodo ${c.periodo}`, num(c.excluidas.periodo)],
       ['= Atenciones en la cohorte', num(c.atenciones)]]),
     h('p', {}, `Identificadores presentes ahora: ${ident(S.antes.identificadores)}.`)),
@@ -307,7 +307,7 @@ function panelResultados() {
         : h('p', {}, 'No se detectaron.')),
     detalle('controles', 'Ver controles para los casos especiales',
       tabla(['Control', 'Cantidad'], [
-        ['Atenciones excluidas por menor de 18 (dentro del filtro de diagnóstico)', num(r.cohorte.excluidas.menor)],
+        [`Atenciones excluidas por edad fuera de ${r.cohorte.edad} (dentro del filtro de diagnóstico)`, num(r.cohorte.excluidas.edad)],
         ['Personas en el grupo 80+ en la salida', num(new Set(r.salida.filter(f => f.grupo_edad === '80+').map(f => f.id_paciente_estudio)).size)],
         ...r.recorrido.filter(o => o.operacion.startsWith('Supresión'))
           .map(o => [`Personas retiradas: ${o.operacion.toLowerCase()} (vuelta ${o.vuelta})`, num(o.personasAntes - o.personasDespues)]),

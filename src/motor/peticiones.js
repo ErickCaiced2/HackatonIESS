@@ -2,7 +2,7 @@
 // Cada cambio de estado queda en el historial de la petición. No hay operación para borrarlas.
 import { listaPersistente, nuevoId } from './almacen.js';
 import { validarDestinatario, mismoDestinatario, normalizarId } from './destinatario.js';
-import { validarPeriodo } from './cie10.js';
+import { validarPeriodo, validarEdad } from './cie10.js';
 
 export const ESTADOS = Object.freeze({
   enviada: 'Enviada a TI',
@@ -31,6 +31,8 @@ export function validarPeticion({ destinatario, filtro, aprobacion }) {
   if (!filtro?.capitulo) e.push('Elija el capítulo CIE-10.');
   const p = validarPeriodo(filtro ?? {});
   if (p) e.push('Periodo: ' + p);
+  const ed = validarEdad(filtro ?? {});
+  if (ed) e.push('Edad: ' + ed);
   if (!aprobacion?.nombre) e.push('Adjunte la solicitud aprobada (PDF).');
   else if (!/\.pdf$/i.test(aprobacion.nombre) && aprobacion.tipo !== 'application/pdf') e.push('La solicitud aprobada debe ser un PDF.');
   else if (aprobacion.tamano > PDF_MAXIMO) e.push('El PDF supera 10 MB.');

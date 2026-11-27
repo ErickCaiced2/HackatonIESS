@@ -35,8 +35,8 @@ test('CSV: comillas, comas, saltos de línea y neutralización de fórmulas', ()
 test('cohorte: exclusiones que cuadran', () => {
   const { cohorte } = preparar();
   const x = cohorte.excluidas;
-  assert.deepEqual(x, { diagnostico: 1, menor: 2, periodo: 1 });
-  assert.equal(cohorte.entrada - x.diagnostico - x.menor - x.periodo, cohorte.atenciones);
+  assert.deepEqual(x, { diagnostico: 1, edad: 2, periodo: 1 });
+  assert.equal(cohorte.entrada - x.diagnostico - x.edad - x.periodo, cohorte.atenciones);
 });
 
 test('grupos de edad', () => {
@@ -186,7 +186,7 @@ test('periodo: lo elige el operador, entre 1980 y el año actual, con inicio ≤
   for (const filtro of [f(2023, 2023), f(2025, 2025), f(2024, 2024), f(1980, 2026)]) {
     const c = extraerCohorte(datos.filas, filtro);
     assert.equal(contar(filtro), c.personas);
-    assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.menor + c.excluidas.periodo);
+    assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.edad + c.excluidas.periodo);
   }
   assert.equal(extraerCohorte(datos.filas, f(2023, 2023)).periodo, '2023');
   assert.equal(extraerCohorte(datos.filas, f(2023, 2025)).periodo, '2023-2025');
@@ -216,4 +216,30 @@ test('edad: el ancho de los rangos es configurable y 10 y 20 conservan los grupo
   const { cohorte } = preparar();
   const r = ejecutar(cohorte, { ...PROPIA, anchoEdad: 15 });
   assert.ok(r.salida.every(f => gruposDeEdad(15).includes(f.grupo_edad)));
+});
+
+test('edad: el comité elige el rango (mínimo 18) y se aplica igual en el conteo y en la cohorte', async () => {
+  const { validarEdad, etiquetaEdad, esDelEstudio, FILTRO_ESTUDIO } = await import('../src/motor/cie10.js');
+  const f = (edadDesde, edadHasta) => ({ ...FILTRO_ESTUDIO, edadDesde, edadHasta });
+  assert.equal(validarEdad(f(18, null)), '');
+  assert.equal(validarEdad(f(30, 30)), '');
+  assert.match(validarEdad(f(17, null)), /mínima es 18/);
+  assert.match(validarEdad(f(40, 30)), /no puede ser mayor/);
+  assert.match(validarEdad(f(18, 200)), /entre 18 y 105/);
+  assert.equal(etiquetaEdad(f(18, null)), '18 años o más');
+  assert.equal(etiquetaEdad(f(18, 64)), '18 a 64 años');
+  assert.ok(esDelEstudio(f(18, null)));
+  assert.equal(esDelEstudio(f(18, 64)), false);
+  assert.throws(() => extraerCohorte(preparar().datos.filas, f(10, null)), /mínima es 18/);
+  const { datos } = preparar();
+  const contar = contadorPorFiltro(datos.filas);
+  for (const filtro of [f(18, null), f(18, 40), f(41, null), f(30, 30), f(90, 105)]) {
+    const c = extraerCohorte(datos.filas, filtro);
+    assert.equal(contar(filtro), c.personas, etiquetaEdad(filtro));
+    assert.ok(c.filas.every(x => Number(x.edad) >= filtro.edadDesde && (filtro.edadHasta === null || Number(x.edad) <= filtro.edadHasta)));
+    assert.equal(c.entrada, c.atenciones + c.excluidas.diagnostico + c.excluidas.edad + c.excluidas.periodo);
+  }
+  // Las atenciones se reparten sin solaparse (una persona puede tener atenciones en ambos rangos).
+  assert.equal(extraerCohorte(datos.filas, f(18, 40)).atenciones + extraerCohorte(datos.filas, f(41, null)).atenciones,
+    extraerCohorte(datos.filas, f(18, null)).atenciones);
 });
